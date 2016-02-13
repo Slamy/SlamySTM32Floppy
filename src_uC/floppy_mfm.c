@@ -2,27 +2,33 @@
 #include "stm32f4_discovery.h"
 #include "stm32f4xx_tim.h"
 #include "stm32f4xx_rcc.h"
-#include "pt.h"
-#include "pt-sem.h"
 #include "floppy_mfm.h"
 
 
-volatile unsigned char mfm_decodedByte;
-volatile enum mfm_decodingStatus_enum mfm_decodingStatus;
+volatile unsigned long mfm_savedRawWord=0;
+volatile unsigned char mfm_decodedByte=0;
+volatile unsigned int mfm_inSync=0;
+volatile unsigned int mfm_decodedByteValid=0;
+
 
 extern void printShortBin(unsigned short val);
 void printCharBin(unsigned char val);
 
-static unsigned short rawMFM = 0;
+static unsigned long rawMFM = 0;
 static unsigned char decodedMFM = 0;
 static unsigned int shiftedBits=0;
+
 static unsigned int mfm_cellLength=MFM_BITTIME_DD/2;
+static unsigned int mfm_transitionHandler=0;
+
+
 //#define SYNC_WORD 0x5224
-#define SYNC_WORD 0x4489
+#define SYNC_WORD_ISO 0x4489 //broken A1
+#define SYNC_WORD_AMIGA 0x44894489 //broken A1 *2
 
+unsigned int diff;
 
-
-void decodeRawMFM()
+void mfm_iso_decode()
 {
 	//printf("%4x %2d ",rawMFM,shiftedBits);
 	//printShortBin(rawMFM);
@@ -30,36 +36,118 @@ void decodeRawMFM()
 	//printCharBin(decodedMFM);
 	//printf("\n");
 
-	if (mfm_decodingStatus > UNSYNC && shiftedBits==16)
+	if (mfm_inSync && shiftedBits==16)
 	{
-		if (mfm_decodingStatus < SYNC3 && rawMFM==SYNC_WORD)
-		{
-			mfm_decodingStatus++;
-			//printf("SYNC%d\n",mfm_decodingStatus-SYNC1+1);
-		}
-
-		if (mfm_decodingStatus >= SYNC3)
-		{
-			shiftedBits=0;
-			//printf("Decoded:%2x\n",decodedMFM);
-			mfm_decodedByte=decodedMFM;
-			mfm_decodingStatus=DATA_VALID;
-		}
+		shiftedBits=0;
+		//printf("Decoded:%2x\n",decodedMFM);
+		mfm_decodedByte=decodedMFM;
+		mfm_savedRawWord=rawMFM;
+		mfm_decodedByteValid=1;
 	}
 
-	if (rawMFM==SYNC_WORD) //IAM sync word is broken C2.
+	if ((rawMFM & 0xffff)==SYNC_WORD_ISO) //IAM sync word is broken A1.
 	{
 		shiftedBits=0;
 		rawMFM=0;
 		decodedMFM=0;
+		mfm_inSync++;
+		if (mfm_inSync>5)
+			mfm_inSync=5;
+	}
+}
 
-		//printf("SYNC%d\n",mfm_decodingStatus-SYNC1+1);
-
-		if (mfm_decodingStatus == UNSYNC)
+void mfm_iso_transitionHandler()
+{
+	if (diff > MAXIMUM_VALUE)
+	{
+		//Die letzte Transition ist zu weit weg. Desynchronisiert...
+		mfm_inSync=0;
+		//printf("UNSYNC\n");
+	}
+	else
+	{
+		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
+		//printf("diff:%d\n",diff);
+		while (diff > mfm_cellLength + mfm_cellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 		{
-			mfm_decodingStatus = SYNC1;
-			//printf("SYNC%d\n",mfm_decodingStatus-SYNC1+1);
+			diff-=mfm_cellLength;
+			rawMFM<<=1;
+			if ((shiftedBits&1)!=0)
+			{
+				decodedMFM<<=1;
+			}
+			shiftedBits++;
+			mfm_iso_decode();
 		}
+
+		//Es bleibt eine 1 übrig.
+		rawMFM<<=1;
+		rawMFM|=1;
+		if ((shiftedBits&1)!=0)
+		{
+			//Die geraden Bits bestimmen die tatsächlichen Daten.
+			decodedMFM<<=1;
+			decodedMFM|=1;
+		}
+		shiftedBits++;
+		mfm_iso_decode();
+	}
+}
+
+
+
+void mfm_amiga_decode()
+{
+	//printf("%4x %2d ",rawMFM,shiftedBits);
+	//printShortBin(rawMFM);
+	//printf(" ");
+	//printCharBin(decodedMFM);
+	//printf("\n");
+
+	if (mfm_inSync && shiftedBits==32)
+	{
+		shiftedBits=0;
+		//printf("Decoded:%2x\n",decodedMFM);
+		mfm_decodedByte=decodedMFM;
+		mfm_savedRawWord=rawMFM;
+		mfm_decodedByteValid=1;
+	}
+
+	if (rawMFM==SYNC_WORD_AMIGA) //IAM sync word is broken A1.
+	{
+		shiftedBits=0;
+		rawMFM=0;
+		mfm_inSync++;
+		if (mfm_inSync>5)
+			mfm_inSync=5;
+	}
+}
+
+void mfm_amiga_transitionHandler()
+{
+	if (diff > MAXIMUM_VALUE)
+	{
+		//Die letzte Transition ist zu weit weg. Desynchronisiert...
+		mfm_inSync=0;
+		//printf("UNSYNC\n");
+	}
+	else
+	{
+		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
+		//printf("diff:%d\n",diff);
+		while (diff > mfm_cellLength + mfm_cellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		{
+			diff-=mfm_cellLength;
+			rawMFM<<=1;
+			shiftedBits++;
+			mfm_amiga_decode();
+		}
+
+		//Es bleibt eine 1 übrig.
+		rawMFM<<=1;
+		rawMFM|=1;
+		shiftedBits++;
+		mfm_amiga_decode();
 	}
 }
 
@@ -98,8 +186,10 @@ void TIM2_IRQHandler(void)
 	unsigned int intStart=TIM_GetCounter(TIM2);
 
 	unsigned int transitionTime=TIM_GetCapture3(TIM2);
-	unsigned int diff=transitionTime - lastTransitionTime;
+	diff=transitionTime - lastTransitionTime;
 	TIM_ClearITPendingBit(TIM2, TIM_IT_CC3);
+
+	mfm_iso_transitionHandler();
 
 	//printf("%u\n",diff);
 	/*
@@ -108,47 +198,15 @@ void TIM2_IRQHandler(void)
 		diffCollector_Anz++;
 	*/
 
-	if (diff > MAXIMUM_VALUE)
-	{
-		//Die letzte Transition ist zu weit weg. Desynchronisiert...
-		mfm_decodingStatus=UNSYNC;
-		//printf("UNSYNC\n");
-	}
-	else
-	{
-		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
-		//printf("diff:%d\n",diff);
-		while (diff > mfm_cellLength + mfm_cellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
-		{
-			diff-=mfm_cellLength;
-			rawMFM<<=1;
-			if ((shiftedBits&1)!=0)
-			{
-				decodedMFM<<=1;
-			}
-			shiftedBits++;
-			decodeRawMFM();
-		}
 
-		//Es bleibt eine 1 übrig.
-		rawMFM<<=1;
-		rawMFM|=1;
-		if ((shiftedBits&1)!=0)
-		{
-			//Die geraden Bits bestimmen die tatsächlichen Daten.
-			decodedMFM<<=1;
-			decodedMFM|=1;
-		}
-		shiftedBits++;
-		decodeRawMFM();
-	}
 
 	lastTransitionTime=transitionTime;
+
 
 }
 
 
-unsigned short mfm_encode(unsigned char data)
+unsigned short mfm_iso_encode(unsigned char data)
 {
 	int i;
 	unsigned short rawData=0;
@@ -271,7 +329,32 @@ void mfm_init()
 
 }
 
-void mfm_setBitTime(unsigned int bit)
+void mfm_setDecodingMode(enum mfmMode mode)
 {
-	mfm_cellLength=bit>>1;
+	switch (mode)
+	{
+		case MFM_ISO_DD:
+			mfm_cellLength=MFM_BITTIME_DD>>1;
+			mfm_transitionHandler=0;
+
+			break;
+
+		case MFM_ISO_HD:
+			mfm_cellLength=MFM_BITTIME_HD>>1;
+			mfm_transitionHandler=0;
+
+			break;
+
+		case MFM_AMIGA_DD:
+			mfm_cellLength=MFM_BITTIME_DD>>1;
+			mfm_transitionHandler=1;
+			break;
+	}
+
+
+}
+
+void mfm_setEnableState(FunctionalState state)
+{
+	TIM_ITConfig(TIM2,TIM_IT_CC3,state);
 }

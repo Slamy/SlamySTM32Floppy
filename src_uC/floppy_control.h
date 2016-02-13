@@ -2,9 +2,6 @@
 #ifndef FLOPPY_CONTROL_H
 #define FLOPPY_CONTROL_H
 
-#include "pt.h"
-#include "pt-sem.h"
-
 enum DriveSelect
 {
 	DRIVE_SELECT_NONE,
@@ -12,10 +9,11 @@ enum DriveSelect
 	DRIVE_SELECT_B
 };
 
-void floppyControl_setMotor(int drive, int val);
-void floppyControl_selectDrive(enum DriveSelect sel);
+void floppy_setMotor(int drive, int val);
+void floppy_selectDrive(enum DriveSelect sel);
+void floppy_setHead(int head);
 
-extern PT_THREAD(floppyControl_step_thread(struct pt *pt));
+//extern PT_THREAD(floppyControl_step_thread(struct pt *pt));
 
 
 

@@ -23,11 +23,11 @@ void floppyControl_init()
 	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
 
 
-	GPIOB->BSRRL=GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4; //set the pins high to make them inactive!
+	GPIOB->BSRRL=GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_11; //set the pins high to make them inactive!
 	GPIOA->BSRRL=GPIO_Pin_8 | GPIO_Pin_15;
 
-	//Init /DRVSA, /MOTEB, /DIR and /STEP
-	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4;
+	//Init /DRVSA, /MOTEB, /DIR, /STEP, /SIDE1
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_11;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
@@ -57,7 +57,7 @@ void floppyControl_init()
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
 
 	TIM_TimeBaseInitTypeDef timInit;
-	timInit.TIM_Prescaler=500;
+	timInit.TIM_Prescaler=4000;
 	timInit.TIM_CounterMode=TIM_CounterMode_Up;
 	timInit.TIM_Period=0xFFFFFFFF;
 	timInit.TIM_ClockDivision=TIM_CKD_DIV1;
@@ -78,7 +78,7 @@ void floppyControl_init()
 
 
 
-void floppyControl_selectDrive(enum DriveSelect sel)
+void floppy_selectDrive(enum DriveSelect sel)
 {
 	switch (sel)
 	{
@@ -97,7 +97,7 @@ void floppyControl_selectDrive(enum DriveSelect sel)
 	}
 }
 
-void floppyControl_setMotor(int drive, int val)
+void floppy_setMotor(int drive, int val)
 {
 	if (drive)
 	{
@@ -117,16 +117,24 @@ void floppyControl_setMotor(int drive, int val)
 	}
 }
 
-unsigned int wantedTrack=30;
+void floppy_setHead(int head)
+{
+	if (head)
+		GPIOB->BSRRH = GPIO_Pin_11; //set /SIDE1 low -> head 1
+	else
+		GPIOB->BSRRL = GPIO_Pin_11; //set /SIDE1 high -> head 0
+}
 
-#define STEP_WAIT_TIME 1000
-#define STEP_LOW_TIME 100
+#define STEP_WAIT_TIME 125
+#define STEP_LOW_TIME 13
 
+/*
 void gpio_setPinMode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
 {
 	GPIOx->MODER  &= ~(GPIO_MODER_MODER0 << 8);
 	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 8);
 }
+*/
 
 void setupStepTimer(int waitTime)
 {
@@ -135,33 +143,42 @@ void setupStepTimer(int waitTime)
 	TIM_ClearFlag(TIM3,TIM_FLAG_CC1);
 }
 
-PT_THREAD(floppyControl_step_thread(struct pt *pt))
-{
-	static unsigned int currentTrack=0;
-	static unsigned int stepTime=0;
+static unsigned int currentTrack=0;
+static unsigned int stepTime=0;
 
-	PT_BEGIN(pt);
+void floppy_stepToTrack00()
+{
+	int trys=0;
 
 	GPIOB->BSRRL=GPIO_Pin_2; //set /DIR to high to step outside
+
 	while ((GPIOB->IDR & GPIO_Pin_7))
 	{
 		//printf("ST OUT! %d %d\n",TIM3->CNT,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1));
 
+		setupStepTimer(STEP_WAIT_TIME);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
 		GPIOB->BSRRH=GPIO_Pin_4; //set /STEP to low
 
 		setupStepTimer(STEP_LOW_TIME);
-		PT_WAIT_WHILE(pt,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
+		trys++;
 
-		setupStepTimer(STEP_WAIT_TIME);
-		PT_WAIT_WHILE(pt,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
-
+		if (trys > 100)
+		{
+			printf("floppy_stepToTrack00() TIMEOUT\n");
+		}
 	}
 
-	printf("Aligned to Track 00\n");
+	currentTrack=0;
+}
 
-	for(;;)
+void floppy_stepToTrack(unsigned int wantedTrack)
+{
+	while (currentTrack != wantedTrack)
 	{
 		/*
 		if (!(GPIOB->IDR & GPIO_Pin_7))
@@ -169,9 +186,10 @@ PT_THREAD(floppyControl_step_thread(struct pt *pt))
 			currentTrack=0;
 		}
 		*/
+
 		//printf("TRK00:%x\n",GPIOB->IDR & GPIO_Pin_7);
 
-		PT_WAIT_UNTIL(pt,currentTrack != wantedTrack);
+		//PT_WAIT_UNTIL(pt,currentTrack != wantedTrack);
 
 		if (currentTrack > wantedTrack)
 		{
@@ -187,19 +205,18 @@ PT_THREAD(floppyControl_step_thread(struct pt *pt))
 		}
 
 		setupStepTimer(STEP_WAIT_TIME);
-		PT_WAIT_WHILE(pt,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 
 		GPIOB->BSRRH=GPIO_Pin_4; //set /STEP to low
 		//gpio_setPinMode(GPIOB,GPIO_Mode_OUT);
 
 		setupStepTimer(STEP_LOW_TIME);
-		PT_WAIT_WHILE(pt,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
 		//gpio_setPinMode(GPIOB,GPIO_Mode_IN);
 	}
 
-	PT_END(pt);
 }
 
 

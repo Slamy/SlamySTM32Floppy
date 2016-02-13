@@ -39,6 +39,18 @@ add_executable (slamyflop
 	STM32F4xx_StdPeriph_Driver/src/stm32f4xx_tim.c
 	STM32F4xx_StdPeriph_Driver/src/misc.c
 	STM32F4xx_StdPeriph_Driver/src/stm32f4xx_syscfg.c
+	Tilzor/usb_cdc_device/usb_bsp.c
+	Tilzor/usb_cdc_device/usb_core.c
+	Tilzor/usb_cdc_device/usb_dcd.c
+	Tilzor/usb_cdc_device/usbd_cdc_core.c
+	Tilzor/usb_cdc_device/usb_dcd_int.c
+	Tilzor/usb_cdc_device/usbd_core.c
+	Tilzor/usb_cdc_device/usbd_desc.c
+	Tilzor/usb_cdc_device/usbd_ioreq.c
+	Tilzor/usb_cdc_device/usbd_req.c
+	Tilzor/usb_cdc_device/usbd_usr.c
+	Tilzor/tm_stm32f4_usb_vcp.c
+	stm32f4xx_it.c
 )
 
 target_link_libraries (slamyflop LINK_PUBLIC Hello)
@@ -49,6 +61,8 @@ target_include_directories (slamyflop PUBLIC
 	STM32F4xx_StdPeriph_Driver/inc/
 	Utilities
 	pt-1.4
+	Tilzor
+	Tilzor/usb_cdc_device/
 	)
 
 add_custom_command(OUTPUT slamyflop.bin
