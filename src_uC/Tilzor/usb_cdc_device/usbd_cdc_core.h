@@ -102,6 +102,9 @@ CDC_IF_Prop_TypeDef;
 
 unsigned char *usb_blockedGetTxBuf();
 void usb_startTransmit(int len);
+unsigned char usb_getRecvLen();
+unsigned char *usb_getRecvBuffer();
+void usb_releaseRecvBuffer();
 
 
 /** @defgroup USBD_CORE_Exported_Macros

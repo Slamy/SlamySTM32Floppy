@@ -15,27 +15,44 @@
 #include "floppy_mfm.h"
 
 
+/*
+void gpio_setPin4Mode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
+{
+	GPIOx->MODER  &= ~(GPIO_MODER_MODER0 << 8);
+	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 8);
+}
+*/
+
+void gpio_setPin1Mode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
+{
+	GPIOx->MODER  &= ~(GPIO_MODER_MODER0 << 2);
+	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 2);
+}
+
+
 void floppyControl_init()
 {
 	GPIO_InitTypeDef  GPIO_InitStructure;
 
 	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
 	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);
 
-
-	GPIOB->BSRRL=GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_11; //set the pins high to make them inactive!
+	//set the pins high to make them inactive before activation
+	GPIOB->BSRRL=GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_11;
 	GPIOA->BSRRL=GPIO_Pin_8 | GPIO_Pin_15;
 
-	//Init /DRVSA, /MOTEB, /DIR, /STEP, /SIDE1
-	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_11;
-	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	//Init Input GPIOs
+
+	//Init /INDEX
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
-	GPIO_Init(GPIOB, &GPIO_InitStructure);
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
 
 	//Init /TRK00
-
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_7;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
@@ -43,17 +60,26 @@ void floppyControl_init()
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
 	GPIO_Init(GPIOB, &GPIO_InitStructure);
 
+	//Init Output GPIOs
 
-	//Init /MOTEA and /DRVSB
-	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 | GPIO_Pin_15;
+	//Init /REDWC, /MOTEA, /DRVSB
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_1 | GPIO_Pin_8 | GPIO_Pin_15;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
 	GPIO_Init(GPIOA, &GPIO_InitStructure);
 
+	//Init /DRVSA, /MOTEB, /DIR, /STEP, /SIDE1, /WGATE
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_11;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
 
 
+	//init TIM3. TIM3 is used for time measuring of timeouts and stepping.
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
 
 	TIM_TimeBaseInitTypeDef timInit;
@@ -73,10 +99,44 @@ void floppyControl_init()
 
 	TIM_Cmd(TIM3,ENABLE);
 
+	//init index interrupt. The used pin is PA3.
+
+	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource3);
+
+	EXTI_InitTypeDef EXTI_InitStruct;
+	EXTI_StructInit(&EXTI_InitStruct);
+
+	EXTI_InitStruct.EXTI_Line = EXTI_Line3;
+	EXTI_InitStruct.EXTI_Mode = EXTI_Mode_Interrupt;
+	EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Falling;
+	EXTI_InitStruct.EXTI_LineCmd = ENABLE;
+
+	EXTI_Init(&EXTI_InitStruct);
+
+	NVIC_InitTypeDef NVIC_InitStructure;
+	NVIC_InitStructure.NVIC_IRQChannel = EXTI3_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x01;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x01;
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+	NVIC_Init(&NVIC_InitStructure);
 
 }
 
-
+void floppy_selectDensity(enum Density val)
+{
+	if (val==DENSITY_DOUBLE)
+	{
+		//GPIOA->BSRRL=GPIO_Pin_1; //set /REDWC to high. High Density
+		gpio_setPin1Mode(GPIOA,GPIO_Mode_IN);
+		printf("set /REDWC to high. Makes it low/double density\n");
+	}
+	else
+	{
+		GPIOA->BSRRH=GPIO_Pin_1; //set /REDWC to low. Double Density
+		gpio_setPin1Mode(GPIOA,GPIO_Mode_OUT);
+		printf("set /REDWC to low. Makes it high density.\n");
+	}
+}
 
 void floppy_selectDrive(enum DriveSelect sel)
 {
@@ -128,14 +188,6 @@ void floppy_setHead(int head)
 #define STEP_WAIT_TIME 125
 #define STEP_LOW_TIME 13
 
-/*
-void gpio_setPinMode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
-{
-	GPIOx->MODER  &= ~(GPIO_MODER_MODER0 << 8);
-	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 8);
-}
-*/
-
 void setupStepTimer(int waitTime)
 {
 	TIM3->CNT=0;
@@ -144,9 +196,8 @@ void setupStepTimer(int waitTime)
 }
 
 static unsigned int currentTrack=0;
-static unsigned int stepTime=0;
 
-void floppy_stepToTrack00()
+void floppy_stepToCylinder00()
 {
 	int trys=0;
 
@@ -176,9 +227,9 @@ void floppy_stepToTrack00()
 	currentTrack=0;
 }
 
-void floppy_stepToTrack(unsigned int wantedTrack)
+void floppy_stepToCylinder(unsigned int wantedCyl)
 {
-	while (currentTrack != wantedTrack)
+	while (currentTrack != wantedCyl)
 	{
 		/*
 		if (!(GPIOB->IDR & GPIO_Pin_7))
@@ -191,7 +242,7 @@ void floppy_stepToTrack(unsigned int wantedTrack)
 
 		//PT_WAIT_UNTIL(pt,currentTrack != wantedTrack);
 
-		if (currentTrack > wantedTrack)
+		if (currentTrack > wantedCyl)
 		{
 			//printf("ST OUT! %d\n",SysTick->VAL);
 			GPIOB->BSRRL=GPIO_Pin_2; //set /DIR to high to step outside
@@ -208,15 +259,94 @@ void floppy_stepToTrack(unsigned int wantedTrack)
 		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 
 		GPIOB->BSRRH=GPIO_Pin_4; //set /STEP to low
-		//gpio_setPinMode(GPIOB,GPIO_Mode_OUT);
+		//gpio_setPin4Mode(GPIOB,GPIO_Mode_OUT);
 
 		setupStepTimer(STEP_LOW_TIME);
 		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
-		//gpio_setPinMode(GPIOB,GPIO_Mode_IN);
+		//gpio_setPin4Mode(GPIOB,GPIO_Mode_IN);
 	}
 
+}
+
+void floppy_setWriteGate(int val)
+{
+
+	if (val)
+		GPIOB->BSRRH=GPIO_Pin_5; //set /WGATE to low
+	else
+		GPIOB->BSRRL=GPIO_Pin_5; //set /WGATE to high
+}
+
+
+
+volatile unsigned int indexHappened=0;
+
+void EXTI3_IRQHandler(void)
+{
+
+	if(EXTI_GetITStatus(EXTI_Line3) != RESET)
+	{
+		indexHappened=1;
+		//printf("Index\n");
+
+		/* Clear the EXTI line pending bit */
+		EXTI_ClearITPendingBit(EXTI_Line3);
+	}
+	/*
+	else
+	{
+		//printf("Unexpected EXTI3!\n");
+	}
+	*/
+}
+
+
+int floppy_waitForIndex()
+{
+	//Wir wollen hier auf den Moment der fallenden Flanke warten.
+
+	setupStepTimer(50000);
+
+	indexHappened=0;
+	while (!indexHappened)
+	{
+		if (TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
+			return 1;
+	}
+	indexHappened=0;
+
+	return 0;
+}
+
+
+void floppy_measureRpm()
+{
+	int i;
+
+	floppy_waitForIndex(); //das erste mal um synchron zu sein.
+
+	setupStepTimer(50000);
+
+	for (i=0;i<10;i++)
+	{
+		indexHappened=0;
+		while (!indexHappened)
+		{
+			if (TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
+			{
+				printf("TimeOut\n");
+				return;
+			}
+		}
+
+		uint16_t cnt=TIM3->CNT;
+		setupStepTimer(50000);
+
+		float rpm=60.0f * 1000000.0f / ( 47.619047619f * (float)cnt);
+		printf("%.1f RPM\n",rpm);
+	}
 }
 
 

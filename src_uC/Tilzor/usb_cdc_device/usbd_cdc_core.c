@@ -64,6 +64,9 @@
   */ 
 
 /* Includes ------------------------------------------------------------------*/
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include "usbd_cdc_core.h"
 #include "usbd_desc.h"
 #include "usbd_req.h"
@@ -179,8 +182,13 @@ __ALIGN_BEGIN uint8_t APP_Rx_Buffer   [APP_RX_DATA_SIZE] __ALIGN_END ;
 #endif /* USB_OTG_HS_INTERNAL_DMA_ENABLED */
 __ALIGN_BEGIN uint8_t CmdBuff[CDC_CMD_PACKET_SZE] __ALIGN_END ;
 
-extern volatile unsigned char usb_recv_data[64];
-extern volatile unsigned char usb_recv_len;
+#define RECV_BUFFER_ANZ 3
+static volatile unsigned char usb_recv_data[RECV_BUFFER_ANZ][64];
+static volatile unsigned char usb_recv_len[RECV_BUFFER_ANZ];
+
+static volatile int usb_recv_index_out=0;
+static volatile int usb_recv_index_in=0;
+
 
 #define SEND_BUFFER_ANZ 3
 volatile unsigned char usb_send_data[SEND_BUFFER_ANZ][64];
@@ -190,6 +198,29 @@ static volatile int usb_send_index_out=0;
 static volatile int usb_send_index_in=0;
 
 static volatile int usb_send_busy=0;
+
+
+unsigned char usb_getRecvLen()
+{
+	return (usb_recv_len[usb_recv_index_out]);
+}
+
+unsigned char *usb_getRecvBuffer()
+{
+	return (usb_recv_data[usb_recv_index_out]);
+}
+
+void usb_releaseRecvBuffer()
+{
+	if (usb_recv_len[usb_recv_index_out])
+	{
+		usb_recv_len[usb_recv_index_out]=0;
+		usb_recv_index_out++;
+		if (usb_recv_index_out >= RECV_BUFFER_ANZ)
+			usb_recv_index_out=0;
+	}
+}
+
 
 unsigned char *usb_blockedGetTxBuf()
 {
@@ -482,9 +513,6 @@ static uint8_t  usbd_cdc_EP0_RxReady (void  *pdev)
   */
 static uint8_t  usbd_cdc_DataIn (void *pdev, uint8_t epnum)
 {
-	uint16_t USB_Tx_ptr;
-	uint16_t USB_Tx_length;
-
 	usb_send_busy=0;
 
 	usb_send_len[usb_send_index_out]=0;
@@ -517,10 +545,18 @@ static uint8_t  usbd_cdc_DataOut (void *pdev, uint8_t epnum)
 
 	//printf("RX %d %d\n",USB_Rx_Cnt,usb_recv_len);
 
-	if (!usb_recv_len)
+	if (!usb_recv_len[usb_recv_index_in])
 	{
-	  usb_recv_len=USB_Rx_Cnt;
-	  memcpy(usb_recv_data,USB_Rx_Buffer,usb_recv_len);
+		usb_recv_len[usb_recv_index_in]=USB_Rx_Cnt;
+		memcpy(usb_recv_data[usb_recv_index_in],USB_Rx_Buffer,usb_recv_len[usb_recv_index_in]);
+
+		usb_recv_index_in++;
+		if (usb_recv_index_in >= RECV_BUFFER_ANZ)
+			usb_recv_index_in=0;
+	}
+	else
+	{
+		printf("****** USB overflow ********\n");
 	}
 
 	/* Prepare Out endpoint to receive next packet */
@@ -562,9 +598,7 @@ static uint8_t  usbd_cdc_SOF (void *pdev)
   * @retval None
   */
 static void Handle_USBAsynchXfer (void *pdev)
-{  uint16_t USB_Tx_ptr;
-	uint16_t USB_Tx_length;
-
+{
 	if (!usb_send_busy && usb_send_len[usb_send_index_out])
 	{
 		usb_send_busy=1;

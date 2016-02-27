@@ -17,7 +17,7 @@ set(CROSS_COMPILE arm-none-eabi- )
 
 SET(CMAKE_CXX_COMPILER arm-none-eabi-g++)
 
-SET(CMAKE_C_FLAGS "-mcpu=cortex-m4 -mthumb -g -O2 -DUSE_STDPERIPH_DRIVER -DUSE_STM32_DISCOVERY")
+SET(CMAKE_C_FLAGS "-mcpu=cortex-m4 -mthumb -g -Wall -O2 -DUSE_STDPERIPH_DRIVER -DUSE_STM32_DISCOVERY")
 
 
 
@@ -30,7 +30,10 @@ add_executable (slamyflop
 	floppy_crc.c
 	floppy_mfm.c
 	floppy_sector.c
+	floppy_sector_iso.c
+	floppy_sector_amiga.c
 	floppy_control.c
+	floppy_settings.c
 	libcsupport.c
 	Utilities/stm32f4_discovery.c
 	STM32F4xx_StdPeriph_Driver/src/stm32f4xx_rcc.c

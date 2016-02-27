@@ -5,54 +5,20 @@
 #include "floppy_crc.h"
 #include "floppy_mfm.h"
 #include "floppy_sector.h"
-
-#define BLOCKED_READ_MFM_OR_RESTART(pt,val) \
-	PT_WAIT_WHILE(pt,mfm_decodingStatus == SYNC3); if (mfm_decodingStatus != DATA_VALID) {PT_RESTART(pt);}; mfm_decodingStatus=SYNC3; val=mfm_decodedByte;
-
-#define WAIT_FOR_IDAM(pt) \
-	PT_WAIT_UNTIL(pt,mfm_decodingStatus >= SYNC3);
-
+#include "floppy_control.h"
+#include "floppy_settings.h"
 
 //arm-none-eabi-cpp floppy_sector.c -I CMSIS/ -IUtilities/ -I STM32F4xx_StdPeriph_Driver/inc -I pt-1.4/
 
-unsigned char trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
+//unsigned char trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
+uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
+
+unsigned int trackReadState=0;
 unsigned int sectorsRead=0;
 unsigned char trackSectorRead[MAX_SECTORS_PER_CYLINDER];
-
 unsigned char lastSectorDataFormat=0;
+unsigned int verifyMode=0;
 
-unsigned int timeOut=0;
-unsigned char errorHappened=0;
-
-
-void waitForSyncWord(int expectNum)
-{
-	timeOut=100000;
-
-	while (mfm_inSync!=expectNum && timeOut)
-		timeOut--;
-
-	if (mfm_inSync!=expectNum)
-		errorHappened=1;
-}
-
-
-unsigned char blockedReadMFM()
-{
-	timeOut=1000;
-
-	while (!mfm_decodedByteValid && timeOut)
-		timeOut--;
-
-	if (mfm_decodedByteValid)
-	{
-		mfm_decodedByteValid=0;
-		return mfm_decodedByte;
-	}
-
-	errorHappened=1;
-	return 0;
-}
 
 char *formatStr[]=
 {
@@ -62,30 +28,28 @@ char *formatStr[]=
 	"Amiga DD, 11 Sektoren"
 };
 
-enum mfmMode floppy_discoverFloppyFormat()
+enum floppyFormat floppy_discoverFloppyFormat()
 {
-	int trackReadState=0;
-	int highestSectorNum=0;
-	enum mfmMode mfmMode;
 	int failCnt;
-	enum mfmMode flopfrmt=UNKNOWN;
+	enum floppyFormat flopfrmt;
+	enum floppyFormat bestSuitFmt=FLOPPY_FORMAT_UNKNOWN;
 
 	//Wir versuchen es zuerst mit HD, dann mit DD
-	floppy_stepToTrack00();
+	floppy_stepToCylinder00();
 	//floppy_stepToTrack(2);
 	floppy_setHead(0);
-	mfm_setEnableState(ENABLE);
+	mfm_read_setEnableState(ENABLE);
 
-	for (mfmMode=MFM_ISO_DD; mfmMode <= MFM_AMIGA_DD; mfmMode++)
+	for (flopfrmt=FLOPPY_FORMAT_ISO_DD; flopfrmt <= FLOPPY_FORMAT_AMIGA_DD; flopfrmt++)
 	{
-		mfm_setDecodingMode(mfmMode);
+		floppy_configureFormat(flopfrmt,0,0,0,0);
 
 		setupStepTimer(10000);
 
 		failCnt=0;
-		floppy_trackDataMachine_init();
+		floppy_readTrackMachine_init();
 
-		while (failCnt < 4)
+		while (failCnt < 2)
 		{
 
 			if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
@@ -95,24 +59,27 @@ enum mfmMode floppy_discoverFloppyFormat()
 				failCnt++;
 			}
 
-			floppy_iso_trackDataMachine(0,0);
+			if (mfm_mode==MFM_MODE_AMIGA)
+				floppy_amiga_readTrackMachine(0,0);
+			else
+				floppy_iso_readTrackMachine(0,0);
 		}
 
-		printf("Aborted with results: %d %d 0x%x\n",sectorsRead,mfmMode,lastSectorDataFormat);
+		printf("Aborted with results: %d %d 0x%x\n",sectorsRead,flopfrmt,lastSectorDataFormat);
 
-		if (sectorsRead==18 && mfmMode==MFM_ISO_HD && lastSectorDataFormat==0xfb)
+		if (sectorsRead==18 && mfm_mode==MFM_MODE_ISO && lastSectorDataFormat==0xfb)
 		{
-			flopfrmt=MFM_ISO_HD;
+			bestSuitFmt=flopfrmt;
 			printf("Format: %s\n",formatStr[flopfrmt]);
 		}
-		else if (sectorsRead==9 && mfmMode==MFM_ISO_DD && lastSectorDataFormat==0xfb)
+		else if (sectorsRead==9 && mfm_mode==MFM_MODE_ISO && lastSectorDataFormat==0xfb)
 		{
-			flopfrmt=MFM_ISO_DD;
+			bestSuitFmt=flopfrmt;
 			printf("Format: %s\n",formatStr[flopfrmt]);
 		}
-		else if (sectorsRead==11 && mfmMode==MFM_AMIGA_DD && lastSectorDataFormat==0xff)
+		else if (sectorsRead==11 && mfm_mode==MFM_MODE_AMIGA && lastSectorDataFormat==0xff)
 		{
-			flopfrmt=MFM_AMIGA_DD;
+			bestSuitFmt=flopfrmt;
 			printf("Format: %s\n",formatStr[flopfrmt]);
 		}
 		else
@@ -120,361 +87,146 @@ enum mfmMode floppy_discoverFloppyFormat()
 			printf("Format nicht erkennbar!\n");
 		}
 
-
-
 	}
 
-	return flopfrmt;
+	mfm_read_setEnableState(DISABLE);
+
+	return bestSuitFmt;
 
 }
 
-static unsigned int trackReadState=0;
-
-void floppy_trackDataMachine_init()
+void floppy_readTrackMachine_init()
 {
 	int i;
 	sectorsRead=0;
 	for (i=0;i<MAX_SECTORS_PER_CYLINDER;i++)
 		trackSectorRead[i]=0;
 
-	errorHappened=0;
+	mfm_errorHappened=0;
 	trackReadState=0;
 	lastSectorDataFormat=0;
+	verifyMode=0;
 }
 
 
-
-
-int floppy_iso_trackDataMachine(int expectedTrack, int expectedHead)
+int floppy_writeAndVerifyTrack(int cylinder, int head)
 {
-	static unsigned char *sectorData;
+	unsigned int i=0;
+	int try=0;
+	int failCnt=0;
+	unsigned int abortVerify=0;
 
-	//Für Iso
-	static unsigned int header_cyl=0;
-	static unsigned int header_head=0;
-	static unsigned int header_sec=0;
-
-	//Für Amiga
-	static unsigned int header_track=0;
-	static unsigned int header_secRem=0;
-
-	static unsigned short amiga_rawMfm[2+8+2]; //4 byte header + 16 byte os info + 4 byte checksum
-	static unsigned short amiga_rawMfm_unshifted[4+16+4];
-	static unsigned short amiga_checksum_even=0;
-	static unsigned short amiga_checksum_odd=0;
-
-	static unsigned int temp=0;
-	static unsigned int i=0;
-
-	if (errorHappened)
+	for (try=0; try < 5; try++)
 	{
-		//printf("Reset statemachine\n");
-		errorHappened=0;
-		trackReadState=0;
+		//printf("Write...\n");
+		mfm_write_setEnableState(ENABLE);
+		//printf("mfm_write enabled\n");
+		floppy_iso_writeTrack(cylinder,head,0);
+
+		mfm_write_setEnableState(DISABLE);
+		//printf("OK\n");
+		setupStepTimer(10000);
+
+		failCnt=0;
+		floppy_readTrackMachine_init();
+		verifyMode=1;
+
+		mfm_read_setEnableState(ENABLE);
+		abortVerify=0;
+		while (sectorsRead < geometry_sectors && !abortVerify)
+		{
+
+			if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
+			{
+				//printf("TO\n");
+				setupStepTimer(10000);
+				failCnt++;
+				if (failCnt > 4)
+				{
+					printf("Failed to verify Track:");
+					for (i=0;i<geometry_sectors;i++)
+					{
+						if (trackSectorRead[i])
+						{
+							printf("K");
+						}
+						else
+						{
+							printf("_");
+						}
+						trackSectorRead[i]=0;
+					}
+					printf("\n");
+					abortVerify=1;
+				}
+			}
+
+			int readTrackMachineRet;
+
+			if (mfm_mode == MFM_MODE_AMIGA)
+				readTrackMachineRet=floppy_amiga_readTrackMachine(cylinder,head);
+			else
+				readTrackMachineRet=floppy_iso_readTrackMachine(cylinder,head);
+
+			if (readTrackMachineRet)
+			{
+				printf("readTrackMachineRet:%d\n",readTrackMachineRet);
+				abortVerify=1;
+			}
+		}
+		mfm_read_setEnableState(DISABLE);
+
+		if (sectorsRead == geometry_sectors)
+			return 0;
 	}
 
-	switch (trackReadState)
-	{
-	case 0:
-		crc=0xFFFF; //reset crc
-		crc_shiftByte(0xa1);
-		crc_shiftByte(0xa1);
-		crc_shiftByte(0xa1);
-
-		trackReadState++;
-		break;
-	case 1:
-		//printf("**** Wait for IDAM\n");
-		mfm_inSync=0;
-		mfm_decodedByteValid=0;
-
-		//Wir warten auf das erste Sync Word
-		waitForSyncWord(1);
-		//printf("IDAM1\n");
-		trackReadState++;
-		break;
-	case 2:
-		//Wir warten auf das zweite Sync Word.
-		//Sowohl beim ISO Format, als auch beim Amiga existiert dies.
-		waitForSyncWord(2);
-		//printf("a%d\n",mfm_inSync);
-		trackReadState++;
-		break;
-
-	case 3:
-		//Jetzt wird es schwierig. Das ISO Format benötigt in jedem Fall noch ein Sync Word
-		//Der Amiga beginnt allerdings schon mit der Header ID.
-
-		//Wir invalidieren das Sync Word und lesen Daten.
-		mfm_decodedByteValid=0;
-		temp=blockedReadMFM();
-
-		if (mfm_inSync==3)
-		{
-			//Noch ein Sync Word? Es ist also höchstwahrscheinlich ISO
-			trackReadState++;
-			//printf("S\n");
-		}
-		else if ((temp & 0xf0)==0xf0) //Laut Doku eigentlich 0xff. Aber das liegt an dem ungewöhnlichen Even und Odd Encoding.
-		{
-			//Amiga Sector Format wahrscheinlich.... ach was ein Scheiß
-			trackReadState=30; //Amiga 1.0 - Sector
-			amiga_rawMfm[0]=(mfm_savedRawWord & AMIGA_MFM_MASK)<<1; //Odd Byte
-			amiga_rawMfm_unshifted[0]=mfm_savedRawWord & AMIGA_MFM_MASK;
-
-			amiga_checksum_even=0;
-			amiga_checksum_odd=mfm_savedRawWord & AMIGA_MFM_MASK;
-
-			i=1;
-			//printf("A%x\n",mfm_savedRawWord);
-		}
-		else
-		{
-			trackReadState=0;
-			printf("u%x\n",temp);
-		}
-
-		break;
-	case 4:
-		//Es muss ein Iso Format sein. Aber ist es ein Header oder Daten?
-		temp=blockedReadMFM();
-
-		switch (temp)
-		{
-			case 0xfe:
-				crc_shiftByte(temp);
-				trackReadState=10; //ISO IDAM - Sector Header
-				break;
-			case 0xfb:
-				crc_shiftByte(temp);
-				trackReadState=20; //ISO DAM - Sector Data
-				break;
-			default:
-				printf("u%x\n",temp);
-				trackReadState=0;
-		}
-		break;
-
-	case 10: //IDAM - Sector Header
-		header_cyl=blockedReadMFM();
-		crc_shiftByte(header_cyl);
-
-		header_head=blockedReadMFM();
-		crc_shiftByte(header_head);
-
-		header_sec=blockedReadMFM();
-		crc_shiftByte(header_sec);
-
-		if (blockedReadMFM()!=2)
-		{
-			trackReadState=0;
-		}
-		else
-		{
-			crc_shiftByte(2);
-			trackReadState++;
-		}
-		break;
-	case 11:
-
-		crc_shiftByte(blockedReadMFM());
-		crc_shiftByte(blockedReadMFM());
-
-		if (crc != 0) //crc has to be 0 at the end for a correct result
-		{
-			printf("**** idam crc error %d %d %d\n",header_cyl,header_head,header_sec);
-			header_cyl=0;
-			header_head=0;
-			header_sec=0;
-		}
-		else
-		{
-			//printf("SecHead: %d %d %d\n",header_cyl,header_head,header_sec);
-
-			if (header_cyl!=expectedTrack)
-			{
-				printf("Track is wrong!\n");
-				return 2;
-			}
-
-			if (header_head != expectedHead)
-			{
-				header_cyl=0;
-				header_head=0;
-				header_sec=0;
-				printf("Head is wrong!\n");
-				return 3;
-			}
-		}
-
-		trackReadState=0;
-
-		break;
-
-	case 20: //DAM - Sector Data
-
-		if (header_sec==0)
-			trackReadState=0; //Keine aktuellen Headerinfos. Also zurück zum Anfang!
-		else
-		{
-			i=0;
-			trackReadState++;
-			sectorData=&trackBuffer[((header_sec-1)+(expectedHead*MAX_SECTORS_PER_TRACK))*SECTOR_SIZE];
-		}
-		break;
-	case 21:
-		sectorData[i]=blockedReadMFM();
-		crc_shiftByte(sectorData[i]);
-		i++;
-
-		if (i==512)
-			trackReadState++;
-		break;
-	case 22:
-		//Datenblock endet mit CRC
-		crc_shiftByte(blockedReadMFM());
-		crc_shiftByte(blockedReadMFM());
-
-		if (crc != 0) //crc has to be 0 at the end for a correct result
-		{
-			printf("**** dam crc error %d %d %d\n",header_cyl,header_head,header_sec);
-		}
-		else
-		{
-			//printf("SecDat: %d %d %d\n",header_cyl,header_head,header_sec);
-
-			if (!trackSectorRead[(header_sec-1)+(expectedHead*MAX_SECTORS_PER_TRACK)])
-			{
-				sectorsRead++;
-				trackSectorRead[(header_sec-1)+(expectedHead*MAX_SECTORS_PER_TRACK)]=1;
-			}
-
-			lastSectorDataFormat=0xfb;
-
-		}
-		trackReadState=0;
-
-		break;
-
-
-
-	case 30: //Amiga 1.0 - Sector - Verarbeite die restlichen 3 Byte des 4 Byte Blocks
-
-		/*
-		header_track=blockedReadMFM();
-		amiga_rawMfm[1]=(mfm_savedRawWord & AMIGA_MFM_MASK)<<1; //Odd Byte
-
-		header_sec=blockedReadMFM();
-		amiga_rawMfm[0]|=mfm_savedRawWord & AMIGA_MFM_MASK; //Even Byte
-
-		header_secRem=blockedReadMFM();
-		amiga_rawMfm[1]|=mfm_savedRawWord & AMIGA_MFM_MASK; //Even Byte
-		 */
-
-		blockedReadMFM();
-
-		if (i>=2)
-		{
-			amiga_rawMfm[i%2]|=(mfm_savedRawWord & AMIGA_MFM_MASK); //Even Byte
-			amiga_checksum_even^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-		else
-		{
-			amiga_rawMfm[i%2]=(mfm_savedRawWord & AMIGA_MFM_MASK)<<1; //Odd Byte
-			amiga_checksum_odd^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-
-		amiga_rawMfm_unshifted[i]=mfm_savedRawWord & AMIGA_MFM_MASK;
-		i++;
-		//printf("AmiSec %04x %04x\n",amiga_rawMfm[0],amiga_rawMfm[1]);
-		if (i==4)
-		{
-			i=0;
-			sectorsRead++;
-			trackReadState++;
-		}
-		break;
-	case 31:
-		//16 byte block of OS recovery????? brauchen wa nicht. aber für checksumme wichtig
-		blockedReadMFM();
-
-		if (i>=8)
-		{
-			amiga_rawMfm[2+i%8]|=(mfm_savedRawWord & AMIGA_MFM_MASK); //Even Byte
-			amiga_checksum_even^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-		else
-		{
-			amiga_rawMfm[2+i%8]=(mfm_savedRawWord & AMIGA_MFM_MASK)<<1; //Odd Byte
-			amiga_checksum_odd^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-
-		amiga_rawMfm_unshifted[4+i]=mfm_savedRawWord & AMIGA_MFM_MASK;
-		i++;
-		if (i==16)
-		{
-			trackReadState++;
-			i=0;
-		}
-		break;
-
-	case 32:
-		//4 Byte Block für Header Checksum
-		blockedReadMFM();
-
-		if (i>=2)
-		{
-			amiga_rawMfm[2+8+i%2]|=(mfm_savedRawWord & AMIGA_MFM_MASK); //Even Byte
-			//amiga_checksum_even^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-		else
-		{
-			amiga_rawMfm[2+8+i%2]=(mfm_savedRawWord & AMIGA_MFM_MASK)<<1; //Odd Byte
-			//amiga_checksum_odd^=mfm_savedRawWord & AMIGA_MFM_MASK;
-		}
-
-		amiga_rawMfm_unshifted[4+16+i]=mfm_savedRawWord & AMIGA_MFM_MASK;
-		i++;
-		if (i==4)
-		{
-
-			//trackReadState++;
-			for (i=0;i < 2+8+2 ; i++)
-				printf("%04x %04x %04x\n",amiga_rawMfm[i],amiga_rawMfm_unshifted[i<<1],amiga_rawMfm_unshifted[(i<<1)+1]);
-			printf("\n");
-			trackReadState=0;
-
-			printf("%04x %04x\n",amiga_checksum_even,amiga_checksum_odd);
-		}
-		//printf("AmiSec2: %x %x %x\n",header_track,header_sec,header_secRem);
-
-		break;
-
-	default:
-		trackReadState=0;
-	}
+	return 1;
 }
 
-int floppy_readCylinder(unsigned int track, unsigned int expectedSectors)
+int floppy_writeAndVerifyCylinder(unsigned int cylinder)
+{
+	int head=0;
+
+	floppy_stepToCylinder(cylinder);
+
+	//Nach dem steppen warten wir einmal zusätzlich auf den Index.
+	floppy_waitForIndex();
+
+	for (head=0; head < geometry_heads; head++)
+	{
+		//floppy_setHead(head);
+		floppy_setHead(head);
+
+		if (floppy_writeAndVerifyTrack(cylinder,head))
+			return 1;
+	}
+	//printf("Written and verified Cylinder!\n");
+
+	return 0;
+}
+
+int floppy_readCylinder(unsigned int cylinder)
 {
 
 	unsigned int i=0;
 	int head=0;
 	int failCnt=0;
 
-	floppy_stepToTrack(track);
+	floppy_stepToCylinder(cylinder);
 
 	//printf("Stepped to track %d",track);
 
-	for (head=0; head < 2; head++)
+	mfm_read_setEnableState(ENABLE);
+
+	for (head=0; head < geometry_heads; head++)
 	{
 		floppy_setHead(head);
 
 		setupStepTimer(10000);
 
 		failCnt=0;
-		floppy_trackDataMachine_init();
-		while (sectorsRead < expectedSectors)
+		floppy_readTrackMachine_init();
+		while (sectorsRead < geometry_sectors)
 		{
 
 			if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
@@ -485,7 +237,7 @@ int floppy_readCylinder(unsigned int track, unsigned int expectedSectors)
 				if (failCnt > 4)
 				{
 					printf("Failed to read Track:");
-					for (i=0;i<MAX_SECTORS_PER_CYLINDER;i++)
+					for (i=0;i<geometry_sectors;i++)
 					{
 						if (trackSectorRead[i])
 						{
@@ -502,28 +254,107 @@ int floppy_readCylinder(unsigned int track, unsigned int expectedSectors)
 				}
 			}
 
-			floppy_iso_trackDataMachine(track,head);
+			if (mfm_mode == MFM_MODE_AMIGA)
+				floppy_amiga_readTrackMachine(cylinder,head);
+			else
+				floppy_iso_readTrackMachine(cylinder,head);
 		}
 	}
 
+	mfm_read_setEnableState(DISABLE);
+
 	return 0;
+}
+
+extern uint32_t geometry_iso_trackstart_4e;
+extern uint32_t geometry_iso_trackstart_00;
+
+extern uint32_t geometry_iso_before_idam_4e;
+extern uint32_t geometry_iso_before_idam_00;
+
+extern uint32_t geometry_iso_before_data_4e;
+extern uint32_t geometry_iso_before_data_00;
+
+void floppy_iso_calibrateTrackLength()
+{
+	unsigned int resultGood=0;
+	int trys=30;
+
+	int i;
+
+	printf("floppy_iso_calibrateTrackLength\n");
+	while (!resultGood)
+	{
+		floppy_iso_writeTrack(0,0,1);
+
+		//now lets be sure because of write gate latency and add some bytes
+		for (i=0;i<10;i++)
+			mfm_blockedWrite(0x4E);
+
+		if (indexHappened)
+		{
+			printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
+					(int)geometry_iso_trackstart_4e,
+					(int)geometry_iso_trackstart_00,
+					(int)geometry_iso_before_idam_4e,
+					(int)geometry_iso_before_idam_00,
+					(int)geometry_iso_before_data_4e,
+					(int)geometry_iso_before_data_00);
+
+			if (geometry_iso_trackstart_4e > 5)
+				geometry_iso_trackstart_4e-=4;
+
+			if (geometry_iso_trackstart_00 > 0)
+				geometry_iso_trackstart_00-=1;
+
+			if (geometry_iso_before_idam_4e > 2)
+				geometry_iso_before_idam_4e-=2;
+
+			if (geometry_iso_before_idam_00 > 2)
+				geometry_iso_before_idam_00-=1;
+
+			trys--;
+			if (!trys)
+			{
+				printf("Give up...\n");
+				resultGood=1;
+			}
+			else
+			{
+				printf("%d\n",trys);
+			}
+
+		}
+		else
+		{
+			printf("Iso Track parameters are fine: %d %d   %d %d   %d %d\n",
+					(int)geometry_iso_trackstart_4e,
+					(int)geometry_iso_trackstart_00,
+					(int)geometry_iso_before_idam_4e,
+					(int)geometry_iso_before_idam_00,
+					(int)geometry_iso_before_data_4e,
+					(int)geometry_iso_before_data_00);
+
+			resultGood=1;
+		}
+	}
 }
 
 void floppy_debugTrackDataMachine(int track, int head )
 {
 	printf("debug %d %d\n",track,head);
 
-	floppy_stepToTrack(track);
+	floppy_stepToCylinder(track);
 	floppy_setHead(head);
-	mfm_setDecodingMode(MFM_AMIGA_DD);
-	mfm_setEnableState(ENABLE);
+	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0,0);
+	mfm_read_setEnableState(ENABLE);
 
 	setupStepTimer(10000);
 
 	int failCnt=0;
-	floppy_trackDataMachine_init();
+	floppy_readTrackMachine_init();
 
-	while (failCnt < 2)
+	while (failCnt < 4)
 	{
 
 		if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
@@ -533,7 +364,9 @@ void floppy_debugTrackDataMachine(int track, int head )
 			failCnt++;
 		}
 
-		floppy_iso_trackDataMachine(track,head);
+		floppy_amiga_readTrackMachine(track,head);
 	}
+
+	mfm_read_setEnableState(DISABLE);
 }
 

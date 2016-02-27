@@ -6,20 +6,22 @@ cmake_minimum_required (VERSION 2.8.11)
 
 project (SlamySTM32Floppy C)
 
-
+SET(CMAKE_C_FLAGS "-g -DCUNIT")
 # -lstdc++ 
 
 add_executable (slamyfloptest
 	main.c
-	../src/floppy_crc.c
-	../src/floppy_mfm.c
-	../src/floppy_sector.c
+	../src_uC/floppy_crc.c
+	../src_uC/floppy_mfm.c
+	../src_uC/floppy_sector.c
+	../src_uC/floppy_sector_amiga.c
+	../src_uC/floppy_sector_iso.c
+	../src_uC/floppy_settings.c
 )
 
 target_include_directories (slamyfloptest PUBLIC
 	.
-	../src/pt-1.4
-	../src
+	../src_uC
 	stubs
 	)
 
