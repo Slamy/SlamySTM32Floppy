@@ -7,7 +7,19 @@
 #include "floppy_sector.h"
 #include "floppy_mfm.h"
 #include "floppy_settings.h"
+#include "floppy_control.h"
 
+struct TIM4_stub TIM4Stub;
+
+struct TIM4_stub* TIM4=&TIM4Stub;
+struct TIM4_stub* TIM2=&TIM4Stub;
+struct TIM4_stub* TIM3=&TIM4Stub;
+
+volatile unsigned int indexHappened=0;
+void floppy_selectDensity(enum Density val)
+{
+
+}
 
 void printEvenLongBin(unsigned long val)
 {
@@ -103,7 +115,7 @@ uint32_t TIM_GetCapture3()
 	return TIM_GetCapture3_ret;
 }
 
-void TIM_ClearITPendingBit(int a, int b)
+void TIM_ClearITPendingBit(struct TIM4_stub *a, int b)
 {
 
 }
@@ -122,7 +134,7 @@ void addTransitionTime(unsigned int diff)
 		return;
 
 	assert(transitionTimes_anz<TRANSITION_MAXANZ);
-	printf("Trans:%d\n",diff);
+	//printf("Trans:%d\n",diff);
 	currentTime+=diff;
 	transitionTimes[transitionTimes_anz]=currentTime;
 	transitionTimes_anz++;
@@ -312,13 +324,14 @@ void activeWaitCbk()
 {
 	static int waitCycles=0;
 	static int transTimeI=0;
-
+	//printf("activeWaitCbk %d %d %d %d\n",waitCycles,transTimeI,transitionTimes_anz,enableTransitionTimeRead);
 	waitCycles++;
 	if ((waitCycles % 5) ==0)
 	{
 		if (transTimeI < transitionTimes_anz && enableTransitionTimeRead)
 		{
 			TIM_GetCapture3_ret=transitionTimes[transTimeI];
+			//printf("Trans: %d\n",TIM_GetCapture3_ret);
 			TIM2_IRQHandler();
 			transTimeI++;
 		}
@@ -489,6 +502,8 @@ void main()
 	printf("Finished creating Transitions\n");
 
 	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
+	addTransitionTimeDisabled=1;
+	enableTransitionTimeRead=1;
 
 	floppy_readTrackMachine_init();
 	while (sectorsRead < 11)
@@ -516,23 +531,24 @@ void main()
 
 	printf("Ist:\n");
 
-	mfm_configureWrite(0,8);
+	mfm_configureWrite(MFM_ENCODE,8);
 	mfm_blockedWrite(0);
 
-	mfm_configureWrite(1,16);
+	mfm_configureWrite(MFM_RAW,16);
 	mfm_blockedWrite(0x4489);
 	mfm_blockedWrite(0x4489);
 
-	mfm_configureWrite(0,8);
+	mfm_configureWrite(MFM_ENCODE,8);
 	mfm_blockedWrite(0);
 	mfm_blockedWrite(0);
 	mfm_blockedWrite(0);
 
 #endif
 
+#if 0
 	floppy_configureFormat(FLOPPY_FORMAT_ISO_DD,0,0,0);
 
-	floppy_iso_writeTrack(0,0);
+	floppy_iso_writeTrack(0,0,0);
 	addTransitionTimeDisabled=1;
 	enableTransitionTimeRead=1;
 	printf("Write finished!\n");
@@ -546,5 +562,24 @@ void main()
 		floppy_iso_readTrackMachine(0,0);
 	}
 
+#endif
+
+#if 1
+	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
+
+	floppy_amiga_writeTrack(0,0,0);
+	addTransitionTimeDisabled=1;
+	enableTransitionTimeRead=1;
+	printf("Write finished!\n");
+
+
+	floppy_readTrackMachine_init();
+	for(;;)
+	{
+		//Ein bissle die Machine ausführen....
+
+		floppy_amiga_readTrackMachine(0,0);
+	}
+#endif
 }
 

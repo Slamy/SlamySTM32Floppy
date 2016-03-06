@@ -218,9 +218,10 @@ void floppy_stepToCylinder00()
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
 		trys++;
 
-		if (trys > 100)
+		if (trys > 120)
 		{
 			printf("floppy_stepToTrack00() TIMEOUT\n");
+			return;
 		}
 	}
 
@@ -289,7 +290,7 @@ void EXTI3_IRQHandler(void)
 	if(EXTI_GetITStatus(EXTI_Line3) != RESET)
 	{
 		indexHappened=1;
-		//printf("Index\n");
+		//printf("I\n");
 
 		/* Clear the EXTI line pending bit */
 		EXTI_ClearITPendingBit(EXTI_Line3);
@@ -313,7 +314,10 @@ int floppy_waitForIndex()
 	while (!indexHappened)
 	{
 		if (TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
+		{
+			printf("Index Timeout\n");
 			return 1;
+		}
 	}
 	indexHappened=0;
 
@@ -325,7 +329,11 @@ void floppy_measureRpm()
 {
 	int i;
 
-	floppy_waitForIndex(); //das erste mal um synchron zu sein.
+	if (floppy_waitForIndex()) //das erste mal um synchron zu sein.
+	{
+		printf("Index Timeout!\n");
+		return;
+	}
 
 	setupStepTimer(50000);
 

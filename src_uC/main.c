@@ -21,12 +21,12 @@ void SysTick_Handler(void)
 {
 	systickCnt++;
 
-	if (floppySpinTimeOut)
+	if (floppySpinTimeOut > 1)
 		floppySpinTimeOut--;
 
 	printVal=1;
 
-
+	/*
 	if ((systickCnt%10)==0)
 	{
 		STM_EVAL_LEDOn(LED3);
@@ -45,6 +45,7 @@ void SysTick_Handler(void)
 		STM_EVAL_LEDOn(LED5);
 		STM_EVAL_LEDOn(LED6);
 	}
+	*/
 
 }
 
@@ -113,7 +114,10 @@ int main()
 	/*
 	floppy_selectDrive(DRIVE_SELECT_A);
 	floppy_setMotor(0,1);
-	floppy_measureRpm();
+	//floppy_measureRpm();
+
+	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
+	floppy_writeAndVerifyCylinder(22);
 
 	floppy_configureFormat(FLOPPY_FORMAT_ISO_HD,0,0,0);
 	floppy_writeAndVerifyCylinder(0);
@@ -250,12 +254,15 @@ int main()
 					usb_send_data[1]='M';
 					usb_send_data[2]='T';
 					usb_send_data[3]=fmt;
+					usb_send_data[4]=sectorsDetected;
 					printf("fmt id %d\n",fmt);
-					usb_startTransmit(4);
+					usb_startTransmit(5);
 				}
 				else if (usb_recv_data[6]==3 && usb_recv_len==13) //configure
 				{
-					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10],usb_recv_data[12]);
+					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10]);
+
+					geometry_iso_cpcSectorIdMode=usb_recv_data[12];
 
 					if (mfm_mode==MFM_MODE_ISO && usb_recv_data[11]==0x12)
 					{
@@ -273,14 +280,19 @@ int main()
 					usb_send_data[1]='K';
 					usb_startTransmit(2);
 				}
-				else if (usb_recv_data[6]==4 && usb_recv_len==8) //write cylinder
+				else if (usb_recv_data[6]==4 && usb_recv_len==(10+18)) //write cylinder
 				{
 					int cylinder=usb_recv_data[7];
+					geometry_heads=usb_recv_data[8];
+					geometry_sectors=usb_recv_data[9];
 
+					memcpy(geometry_iso_sectorPos,(void*)&usb_recv_data[10],MAX_SECTORS_PER_TRACK);
+
+					//printf("Debug %d %d %d\n",geometry_iso_sectorPos[8],geometry_iso_sectorPos[9],geometry_iso_sectorPos[10]);
 					unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
 
 					int totalBytesToReceive=geometry_sectors * geometry_heads * geometry_payloadBytesPerSector + 2; //2 CRC Bytes
-					//printf("Write cyl %d with %d sectors...\n",(int)cylinder,(int)geometry_sectors);
+					printf("Write cyl %d with %d sectors...\n",(int)cylinder,(int)geometry_sectors);
 
 					crc=0xffff;
 					usb_releaseRecvBuffer();
@@ -317,6 +329,14 @@ int main()
 
 					if (!crc)
 					{
+						/*
+						unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
+
+						for (i=0;i<geometry_sectors*geometry_heads;i++)
+						{
+							printf("Recv Sec %d %x\n",i,trkBufPtr[i*geometry_payloadBytesPerSector]);
+						}
+						*/
 
 						floppy_selectDrive(DRIVE_SELECT_A);
 						floppy_setMotor(0,1);

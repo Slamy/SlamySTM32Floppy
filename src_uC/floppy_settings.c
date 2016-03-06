@@ -16,7 +16,8 @@ uint32_t geometry_payloadBytesPerSector=512;
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
 uint32_t geometry_sectors=0;
-uint32_t geometry_iso_sectorInterleave=0;
+unsigned char geometry_iso_sectorPos[MAX_SECTORS_PER_TRACK];
+uint32_t geometry_iso_cpcSectorIdMode=0;
 
 uint32_t geometry_iso_trackstart_4e=50;
 uint32_t geometry_iso_trackstart_00=12;
@@ -28,9 +29,9 @@ uint32_t geometry_iso_before_data_4e=22;
 uint32_t geometry_iso_before_data_00=12;
 
 
-void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors, int interleave)
+void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors)
 {
-	geometry_iso_sectorInterleave=0;
+	int i;
 
 	switch (fmt)
 	{
@@ -75,8 +76,6 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 	if (sectors)
 		geometry_sectors=sectors;
 
-	geometry_iso_sectorInterleave=interleave;
-
 	geometry_iso_trackstart_4e=50;
 	geometry_iso_trackstart_00=12;
 
@@ -86,16 +85,14 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 	geometry_iso_before_data_4e=22;
 	geometry_iso_before_data_00=12;
 
-	if (mfm_mode == MFM_MODE_ISO)
+	for (i=0;i<MAX_SECTORS_PER_TRACK;i++)
 	{
-		floppy_iso_buildSectorInterleavingLut();
-		floppy_iso_evaluateSectorInterleaving();
+		geometry_iso_sectorPos[i]=i+1;
 	}
 
-	printf("Configured geometry: %d %d %d interleaving %d\n",
+	printf("Configured geometry: %d %d %d\n",
 			(int)geometry_cylinders,
 			(int)geometry_heads,
-			(int)geometry_sectors,
-			(int)geometry_iso_sectorInterleave);
+			(int)geometry_sectors);
 }
 

@@ -17,97 +17,48 @@
 
 #define DATA_AFTER_4E 2
 
-uint8_t floppy_iso_sectorInterleave[18];
-
-void floppy_iso_buildSectorInterleavingLut()
-{
-	int i;
-	int sector=1;
-	int placePos=0;
-
-	for (i=0;i<sizeof(floppy_iso_sectorInterleave);i++)
-		floppy_iso_sectorInterleave[i]=0;
-
-	while (sector <= geometry_sectors)
-	{
-		floppy_iso_sectorInterleave[placePos]=sector;
-		placePos+=(geometry_iso_sectorInterleave+1);
-		if (placePos >= geometry_sectors)
-		{
-			placePos-=geometry_sectors;
-		}
-
-		while (floppy_iso_sectorInterleave[placePos])
-			placePos++;
-
-		sector++;
-	}
-}
-
 int floppy_iso_getSectorNum(int sectorPos)
 {
 	//return ((sectorPos-1)*(geometry_iso_sectorInterleave+1) % geometry_sectors) +1;
-	return floppy_iso_sectorInterleave[sectorPos-1];
+	return geometry_iso_sectorPos[sectorPos-1];
 }
 
 
-void floppy_iso_evaluateSectorInterleaving()
-{
-	int sectorpos=0;
-	int expectedSector=1;
-
-	/*
-	for (sectorpos=1; sectorpos <= geometry_sectors ; sectorpos++)
-	{
-		printf("%2d ",sectorpos);
-	}
-	printf("\n");
-
-
-	for (sectorpos=1; sectorpos <= geometry_sectors ; sectorpos++)
-	{
-		printf("%2d ",floppy_iso_getSectorNum(sectorpos));
-	}
-	printf("\n\n");
-	*/
-
-	while (expectedSector <= geometry_sectors)
-	{
-		for (sectorpos=1; sectorpos <= geometry_sectors; sectorpos++)
-		{
-			if (expectedSector==floppy_iso_getSectorNum(sectorpos))
-			{
-				printf("%2d ",floppy_iso_getSectorNum(sectorpos));
-				expectedSector++;
-			}
-			else
-			{
-				printf("-- ");
-			}
-		}
-		printf("\n");
-	}
-}
-
-
-void floppy_iso_writeTrack(int cylinder, int head, int simulate)
+int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 {
 	static uint8_t *sectorData;
 
 	int i;
-	int sector,sectorPos;
+	int sector;
+	int sectorPos;
 
-	//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
-	floppy_waitForIndex();
+	/*
+	printf("Sektors %d -> ",geometry_sectors);
+	for (sector=1; sector <= geometry_sectors; sector++)
+		printf("%d ",floppy_iso_getSectorNum(sector));
+	printf("\n");
+	*/
+
+
+
+	if (floppy_waitForIndex())
+		return 1;
+
 	if (!simulate)
 	{
 		floppy_setWriteGate(1);
-		floppy_waitForIndex();
+
+
+		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
+		/*
+		if (floppy_waitForIndex())
+			return 1;
+		*/
 	}
 
 	//printf("Index!\n");
 
-	mfm_configureWrite(0,8);
+	mfm_configureWrite(MFM_ENCODE,8);
 
 	if (geometry_iso_trackstart_00)
 	{
@@ -118,17 +69,17 @@ void floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		for (i=0;i<geometry_iso_trackstart_00;i++)
 			mfm_blockedWrite(0x00);
 
-		mfm_configureWrite(1,16);
+		mfm_configureWrite(MFM_RAW,16);
 		for (i=0;i<3;i++)
 			mfm_blockedWrite(0x5524);
-		mfm_configureWrite(0,8);
+		mfm_configureWrite(MFM_ENCODE,8);
 
 		mfm_blockedWrite(0xFC);
 	}
 
 
-	//printf("Sektors %d\n",geometry_sectors);
 	for (sectorPos=1; sectorPos <= geometry_sectors; sectorPos++)
+	//for (sector=1; sector <= geometry_sectors; sector++)
 	{
 		sector=floppy_iso_getSectorNum(sectorPos);
 
@@ -143,13 +94,13 @@ void floppy_iso_writeTrack(int cylinder, int head, int simulate)
 
 		crc=0xffff;
 
-		mfm_configureWrite(1,16);
+		mfm_configureWrite(MFM_RAW,16);
 		for (i=0;i<3;i++)
 		{
 			mfm_blockedWrite(0x4489);
 			crc_shiftByte(0xa1);
 		}
-		mfm_configureWrite(0,8);
+		mfm_configureWrite(MFM_ENCODE,8);
 
 
 		mfm_blockedWrite(0xfe);
@@ -161,8 +112,17 @@ void floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		mfm_blockedWrite(head);
 		crc_shiftByte(head);
 
-		mfm_blockedWrite(sector);
-		crc_shiftByte(sector);
+		//unsigned char sectorId=floppy_iso_getSectorNum(sector);
+		if (geometry_iso_cpcSectorIdMode)
+		{
+			mfm_blockedWrite(sector | 0xC0);
+			crc_shiftByte(sector | 0xC0);
+		}
+		else
+		{
+			mfm_blockedWrite(sector);
+			crc_shiftByte(sector);
+		}
 
 		mfm_blockedWrite(2);
 		crc_shiftByte(2);
@@ -179,15 +139,16 @@ void floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		for (i=0;i<geometry_iso_before_data_00;i++)
 			mfm_blockedWrite(0x00);
 
-		mfm_configureWrite(1,16);
+		mfm_configureWrite(MFM_RAW,16);
 		for (i=0;i<3;i++)
 		{
 			mfm_blockedWrite(0x4489);
 			crc_shiftByte(0xa1);
 		}
-		mfm_configureWrite(0,8);
+		mfm_configureWrite(MFM_ENCODE,8);
 
 		sectorData=&((uint8_t*)trackBuffer)[((sector-1)+(head * geometry_sectors)) * geometry_payloadBytesPerSector];
+		//printf("sectorData calc %d %d %d %d %p %p\n",sector, head, geometry_sectors, geometry_payloadBytesPerSector,sectorData,&trackBuffer);
 		//printf("%x\n",sectorData[0]);
 
 		mfm_blockedWrite(0xfb);
@@ -208,6 +169,7 @@ void floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		mfm_blockedWrite(0x4E);
 
 	floppy_setWriteGate(0);
+	return 0;
 }
 
 int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
@@ -321,15 +283,24 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		}
 		else
 		{
-			printf("SecHead: %d %d %d\n",header_cyl,header_head,header_sec);
+			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_sec);
+
+			if (geometry_iso_cpcSectorIdMode)
+				header_sec&=0xf; //remove 0xc0
+
+			if (!trackSectorDetected[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)])
+			{
+				sectorsDetected++;
+				trackSectorDetected[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
+			}
 
 			if (header_cyl!=expectedCyl)
 			{
 				header_cyl=0;
 				header_head=0;
 				header_sec=0;
-				printf("Cylinder is wrong!\n");
-				return 1;
+				//printf("Cylinder is wrong!\n");
+				mfm_errorHappened=1;
 			}
 
 			if (header_head != expectedHead)
@@ -337,13 +308,14 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 				header_cyl=0;
 				header_head=0;
 				header_sec=0;
-				printf("Head is wrong!\n");
-				return 2;
+				//printf("Head is wrong!\n");
+				mfm_errorHappened=1;
 			}
 
 			if (header_sec > geometry_sectors)
 			{
-				printf("Ignore Sector\n");
+				printf("Ignore Sector!\n");
+
 				header_cyl=0;
 				header_head=0;
 				header_sec=0;
@@ -370,9 +342,10 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 	case 21:
 		mfm_blockedRead();
 
-		if (verifyMode && sectorData[i]!=mfm_decodedByte)
+		if (verifyMode)
 		{
-			return 3; //verify failed
+			if (sectorData[i]!=mfm_decodedByte)
+				return 3; //verify failed
 		}
 		else
 			sectorData[i]=mfm_decodedByte;
@@ -398,10 +371,11 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		{
 			//printf("SecDat: %d %d %d %x\n",header_cyl,header_head,header_sec,sectorData[0]);
 
-			if (!trackSectorRead[(header_sec-1)+(expectedHead * geometry_sectors)])
+			//set this sector as a verified / read out one
+			if (!trackSectorRead[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)])
 			{
 				sectorsRead++;
-				trackSectorRead[(header_sec-1)+(expectedHead * geometry_sectors)]=1;
+				trackSectorRead[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
 			}
 
 			lastSectorDataFormat=0xfb;
@@ -419,3 +393,86 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 	return 0;
 }
+
+
+
+
+int floppy_iso_calibrateTrackLength()
+{
+	unsigned int resultGood=0;
+	int trys=30;
+
+	int i;
+
+	printf("floppy_iso_calibrateTrackLength\n");
+	while (!resultGood)
+	{
+		if (floppy_iso_writeTrack(0,0,1))
+			return 1;
+
+		//now lets be sure because of write gate latency and add some bytes
+		for (i=0;i<10;i++)
+			mfm_blockedWrite(0x4E);
+
+		if (indexHappened)
+		{
+			printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
+					(int)geometry_iso_trackstart_4e,
+					(int)geometry_iso_trackstart_00,
+					(int)geometry_iso_before_idam_4e,
+					(int)geometry_iso_before_idam_00,
+					(int)geometry_iso_before_data_4e,
+					(int)geometry_iso_before_data_00);
+
+			if (geometry_iso_trackstart_4e > 3)
+				geometry_iso_trackstart_4e-=3;
+
+			if (geometry_iso_trackstart_4e > 3)
+				geometry_iso_trackstart_4e-=3;
+
+
+
+			if (geometry_iso_trackstart_00 > 0)
+				geometry_iso_trackstart_00-=1;
+
+
+			if (geometry_iso_before_idam_4e > 2)
+				geometry_iso_before_idam_4e-=2;
+
+			if (geometry_iso_before_idam_4e > 2)
+				geometry_iso_before_idam_4e-=2;
+
+
+
+			if (geometry_iso_before_idam_00 > 2)
+				geometry_iso_before_idam_00-=1;
+
+			trys--;
+			if (!trys)
+			{
+				printf("Give up...\n");
+				resultGood=1;
+			}
+			else
+			{
+				printf("%d\n",trys);
+			}
+
+		}
+		else
+		{
+			printf("Iso Track parameters are fine: %d %d   %d %d   %d %d\n",
+					(int)geometry_iso_trackstart_4e,
+					(int)geometry_iso_trackstart_00,
+					(int)geometry_iso_before_idam_4e,
+					(int)geometry_iso_before_idam_00,
+					(int)geometry_iso_before_data_4e,
+					(int)geometry_iso_before_data_00);
+
+			resultGood=1;
+		}
+	}
+
+	return 0;
+}
+

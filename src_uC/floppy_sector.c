@@ -16,6 +16,9 @@ uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
 unsigned int trackReadState=0;
 unsigned int sectorsRead=0;
 unsigned char trackSectorRead[MAX_SECTORS_PER_CYLINDER];
+unsigned int sectorsDetected=0;
+unsigned char trackSectorDetected[MAX_SECTORS_PER_CYLINDER];
+
 unsigned char lastSectorDataFormat=0;
 unsigned int verifyMode=0;
 
@@ -23,16 +26,15 @@ unsigned int verifyMode=0;
 char *formatStr[]=
 {
 	"UNKNOWN",
-	"Iso DD, 9 Sektoren",
-	"Iso HD, 18 Sektoren",
-	"Amiga DD, 11 Sektoren"
+	"Iso DD",
+	"Iso HD",
+	"Amiga DD"
 };
 
 enum floppyFormat floppy_discoverFloppyFormat()
 {
 	int failCnt;
 	enum floppyFormat flopfrmt;
-	enum floppyFormat bestSuitFmt=FLOPPY_FORMAT_UNKNOWN;
 
 	//Wir versuchen es zuerst mit HD, dann mit DD
 	floppy_stepToCylinder00();
@@ -42,7 +44,7 @@ enum floppyFormat floppy_discoverFloppyFormat()
 
 	for (flopfrmt=FLOPPY_FORMAT_ISO_DD; flopfrmt <= FLOPPY_FORMAT_AMIGA_DD; flopfrmt++)
 	{
-		floppy_configureFormat(flopfrmt,0,0,0,0);
+		floppy_configureFormat(flopfrmt,0,0,0);
 
 		setupStepTimer(10000);
 
@@ -65,33 +67,19 @@ enum floppyFormat floppy_discoverFloppyFormat()
 				floppy_iso_readTrackMachine(0,0);
 		}
 
-		printf("Aborted with results: %d %d 0x%x\n",sectorsRead,flopfrmt,lastSectorDataFormat);
+		printf("Aborted with results: %d %d 0x%x\n",sectorsDetected,flopfrmt,lastSectorDataFormat);
 
-		if (sectorsRead==18 && mfm_mode==MFM_MODE_ISO && lastSectorDataFormat==0xfb)
+		if (sectorsDetected >= 5 && sectorsRead >= 3)
 		{
-			bestSuitFmt=flopfrmt;
 			printf("Format: %s\n",formatStr[flopfrmt]);
-		}
-		else if (sectorsRead==9 && mfm_mode==MFM_MODE_ISO && lastSectorDataFormat==0xfb)
-		{
-			bestSuitFmt=flopfrmt;
-			printf("Format: %s\n",formatStr[flopfrmt]);
-		}
-		else if (sectorsRead==11 && mfm_mode==MFM_MODE_AMIGA && lastSectorDataFormat==0xff)
-		{
-			bestSuitFmt=flopfrmt;
-			printf("Format: %s\n",formatStr[flopfrmt]);
-		}
-		else
-		{
-			printf("Format nicht erkennbar!\n");
+			return flopfrmt;
 		}
 
 	}
 
 	mfm_read_setEnableState(DISABLE);
 
-	return bestSuitFmt;
+	return FLOPPY_FORMAT_UNKNOWN;
 
 }
 
@@ -99,8 +87,12 @@ void floppy_readTrackMachine_init()
 {
 	int i;
 	sectorsRead=0;
+	sectorsDetected=0;
 	for (i=0;i<MAX_SECTORS_PER_CYLINDER;i++)
+	{
 		trackSectorRead[i]=0;
+		trackSectorDetected[i]=0;
+	}
 
 	mfm_errorHappened=0;
 	trackReadState=0;
@@ -116,15 +108,25 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 	int failCnt=0;
 	unsigned int abortVerify=0;
 
-	for (try=0; try < 5; try++)
+	for (try=0; try < 3; try++)
 	{
-		//printf("Write...\n");
+		//printf("Write... %d %d\n",cylinder,head);
 		mfm_write_setEnableState(ENABLE);
 		//printf("mfm_write enabled\n");
-		floppy_iso_writeTrack(cylinder,head,0);
+
+		if (mfm_mode == MFM_MODE_AMIGA)
+		{
+			if (floppy_amiga_writeTrack(cylinder,head,0))
+				return 2;
+		}
+		else
+		{
+			if (floppy_iso_writeTrack(cylinder,head,0))
+				return 2;
+		}
 
 		mfm_write_setEnableState(DISABLE);
-		//printf("OK\n");
+		printf("Verify...\n");
 		setupStepTimer(10000);
 
 		failCnt=0;
@@ -266,87 +268,13 @@ int floppy_readCylinder(unsigned int cylinder)
 	return 0;
 }
 
-extern uint32_t geometry_iso_trackstart_4e;
-extern uint32_t geometry_iso_trackstart_00;
-
-extern uint32_t geometry_iso_before_idam_4e;
-extern uint32_t geometry_iso_before_idam_00;
-
-extern uint32_t geometry_iso_before_data_4e;
-extern uint32_t geometry_iso_before_data_00;
-
-void floppy_iso_calibrateTrackLength()
-{
-	unsigned int resultGood=0;
-	int trys=30;
-
-	int i;
-
-	printf("floppy_iso_calibrateTrackLength\n");
-	while (!resultGood)
-	{
-		floppy_iso_writeTrack(0,0,1);
-
-		//now lets be sure because of write gate latency and add some bytes
-		for (i=0;i<10;i++)
-			mfm_blockedWrite(0x4E);
-
-		if (indexHappened)
-		{
-			printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
-					(int)geometry_iso_trackstart_4e,
-					(int)geometry_iso_trackstart_00,
-					(int)geometry_iso_before_idam_4e,
-					(int)geometry_iso_before_idam_00,
-					(int)geometry_iso_before_data_4e,
-					(int)geometry_iso_before_data_00);
-
-			if (geometry_iso_trackstart_4e > 5)
-				geometry_iso_trackstart_4e-=4;
-
-			if (geometry_iso_trackstart_00 > 0)
-				geometry_iso_trackstart_00-=1;
-
-			if (geometry_iso_before_idam_4e > 2)
-				geometry_iso_before_idam_4e-=2;
-
-			if (geometry_iso_before_idam_00 > 2)
-				geometry_iso_before_idam_00-=1;
-
-			trys--;
-			if (!trys)
-			{
-				printf("Give up...\n");
-				resultGood=1;
-			}
-			else
-			{
-				printf("%d\n",trys);
-			}
-
-		}
-		else
-		{
-			printf("Iso Track parameters are fine: %d %d   %d %d   %d %d\n",
-					(int)geometry_iso_trackstart_4e,
-					(int)geometry_iso_trackstart_00,
-					(int)geometry_iso_before_idam_4e,
-					(int)geometry_iso_before_idam_00,
-					(int)geometry_iso_before_data_4e,
-					(int)geometry_iso_before_data_00);
-
-			resultGood=1;
-		}
-	}
-}
-
 void floppy_debugTrackDataMachine(int track, int head )
 {
 	printf("debug %d %d\n",track,head);
 
 	floppy_stepToCylinder(track);
 	floppy_setHead(head);
-	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0,0);
+	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
 	mfm_read_setEnableState(ENABLE);
 
 	setupStepTimer(10000);

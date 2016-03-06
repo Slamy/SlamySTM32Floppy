@@ -25,6 +25,13 @@ enum mfmMode
 	MFM_MODE_AMIGA
 };
 
+enum mfmEncodeMode
+{
+	MFM_ENCODE,
+	MFM_RAW,
+	MFM_ENCODE_ODD
+};
+
 extern enum mfmMode mfm_mode;
 extern uint32_t mfm_cellLength;
 
@@ -57,6 +64,6 @@ void mfm_blockedRead();
 void mfm_blockedWaitForSyncWord(int expectNum);
 
 void mfm_blockedWrite(uint32_t word);
-void mfm_configureWrite(int raw, int wordLen);
+void mfm_configureWrite(enum mfmEncodeMode mode, int wordLen);
 
 #endif

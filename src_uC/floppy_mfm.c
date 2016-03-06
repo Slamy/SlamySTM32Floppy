@@ -103,9 +103,11 @@ void mfm_iso_transitionHandler()
 
 void mfm_amiga_decode()
 {
-	//printf("%08x %2d %d ",rawMFM,shiftedBits,mfm_inSync);
-	//printLongBin(rawMFM);
-	//printf("\n");
+	/*
+	printf("%08x %2d %d ",rawMFM,shiftedBits,mfm_inSync);
+	printLongBin(rawMFM);
+	printf("\n");
+	*/
 
 	if (mfm_inSync && shiftedBits==32)
 	{
@@ -210,12 +212,11 @@ void TIM2_IRQHandler(void)
 	*/
 
 	lastTransitionTime=transitionTime;
-
 }
 
 static volatile uint32_t mfm_write_nextWord=0;
 static volatile uint32_t mfm_write_nextWord_mask=0x80;
-static volatile uint32_t mfm_write_nextWord_rawMode=0;
+static volatile enum mfmEncodeMode mfm_write_nextWord_encodeMode=0;
 static volatile uint32_t mfm_write_nextWord_len=0;
 
 static volatile uint32_t mfm_write_busy=0;
@@ -224,7 +225,7 @@ static volatile uint32_t mfm_write_currentWord_mask=0x80;
 static volatile uint32_t mfm_write_currentWord_len=0;
 static volatile uint32_t mfm_write_currentWord_bit=0;
 static volatile uint32_t mfm_write_currentWord=0;
-static volatile uint32_t mfm_write_currentWord_rawMode=0;
+static volatile enum mfmEncodeMode mfm_write_currentWord_encodeMode=0;
 
 static volatile uint32_t mfm_write_lastBit=0;
 
@@ -235,14 +236,15 @@ uint16_t mfm_write_calcNextPauseLen(void)
 
 	/*
 	printf("mfm_write_calcNextPauseLen %x %d %d %x\n",mfm_write_currentWord,
-											mfm_write_currentWord_rawMode,
+											mfm_write_currentWord_encodeMode,
 											mfm_write_currentWord_bit,
 											mfm_write_currentWord_mask);
 	*/
+
 	while (!pauseLenRet) //wir akkumulieren Pausenzeiten, bis eine 1 Transition kommt.
 	{
 
-		if (mfm_write_currentWord_rawMode)
+		if (mfm_write_currentWord_encodeMode == MFM_RAW)
 		{
 			if (mfm_write_currentWord & mfm_write_currentWord_mask)
 			{
@@ -286,12 +288,16 @@ uint16_t mfm_write_calcNextPauseLen(void)
 		}
 
 		mfm_write_currentWord<<=1;
+		if (mfm_write_currentWord_encodeMode == MFM_ENCODE_ODD)
+			mfm_write_currentWord<<=1;
+
 		mfm_write_currentWord_bit++;
+
 		if (mfm_write_currentWord_bit >= mfm_write_currentWord_len)
 		{
 			mfm_write_currentWord_bit=0;
 			mfm_write_currentWord=mfm_write_nextWord;
-			mfm_write_currentWord_rawMode=mfm_write_nextWord_rawMode;
+			mfm_write_currentWord_encodeMode=mfm_write_nextWord_encodeMode;
 			mfm_write_currentWord_len=mfm_write_nextWord_len;
 			mfm_write_currentWord_mask=mfm_write_nextWord_mask;
 			mfm_write_busy=0;
@@ -314,7 +320,9 @@ void TIM4_IRQHandler(void)
 	//pulseLen*=4;
 
 	TIM_ClearITPendingBit(TIM4, TIM_IT_CC3);
-	//addTransitionTime(pulseLen);
+#ifdef CUNIT
+	addTransitionTime(pulseLen);
+#endif
 
 	lastCompare+=pulseLen;
 	//printf("mfmWrite %d %d\n",pulseLen,lastCompare);
@@ -656,11 +664,19 @@ void mfm_blockedWrite(uint32_t word)
 	//printf("mfm_blockedWrite %x finish\n",word);
 }
 
-void mfm_configureWrite(int raw, int wordLen)
+
+void mfm_configureWrite(enum mfmEncodeMode mode, int wordLen)
 {
 	mfm_write_nextWord_len=wordLen;
-	mfm_write_nextWord_rawMode=raw;
-	mfm_write_nextWord_mask=1<<(wordLen-1);
+	mfm_write_nextWord_encodeMode=mode;
+
+	if (mfm_write_nextWord_encodeMode==MFM_ENCODE_ODD)
+	{
+		mfm_write_nextWord_mask=1<<(wordLen*2-1);
+		//printf("mfm_write_nextWord_mask %lx\n",mfm_write_nextWord_mask);
+	}
+	else
+		mfm_write_nextWord_mask=1<<(wordLen-1);
 }
 
 
