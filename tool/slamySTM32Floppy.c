@@ -1095,13 +1095,20 @@ int main (int argc, char **argv)
 	if (argc<2)
 	{
 		printf("--- Slamy Floppy USB Tool ---\n");
-		printf("  read  amiga <path>   Schreibt den Disketteninhalt in ein Image\n");
-		printf("        isodd <path>\n");
-		printf("        isohd <path>\n");
+		printf("  read  amiga <path>   Schreibt den Disketteninhalt in ein ADF-Image\n");
+		printf("        isodd <path>   Schreibt den Disketteninhalt in ein ST-Image\n");
+		printf("        isohd <path>   \n");
 		printf("  write       <path>   Schreibt das Image auf Diskette\n");
-		printf("        isodd <path>   Erwingt ISO DD\n");
+		printf("                       Direkt erkannt werden\n");
+		printf("                       ADF - Amiga Disk File für Amiga DOS 1.0 Disks\n");
+		printf("                       ST - Atari ST Standard ISO\n");
+		printf("                       DSK - Amstrad CPC Extended\n");
+		printf("                       IPF - Interchangable Preservation Format\n");
+		printf("  write isodd <path>   Erwingt ISO DD\n");
+		printf("  write isohd <path>   Erwingt ISO HD\n");
 		printf("  discover             Versucht das Diskettenformat zu erkennen\n");
 		printf("  info <path>          Analysiert die Geometrie des Images\n");
+		printf("\nDieses Tool hat Super-Floppy-Kräfte :-O!\n");
 
 
 		return 0;
@@ -1119,6 +1126,25 @@ int main (int argc, char **argv)
 		geometry_sectors=atoi(argv[3]);
 		floppy_iso_buildSectorInterleavingLut(atoi(argv[2]));
 		floppy_iso_evaluateSectorInterleaving(0);
+
+		return 0;
+	}
+	else if (!strcmp(argv[1],"floppy") && argc == 2)
+	{
+		printf(" -------------------\n");
+		printf("||_|                |\n");
+		printf("||#|                |\n");
+		printf("|        ___        |\n");
+		printf("|       / O \\       |\n");
+		printf("|       \\ ° /       |\n");
+		printf("|        ---        |\n");
+		printf("|                   |\n");
+		printf("|    ___________    |\n");
+		printf("|   |       __  |   |\n");
+		printf("|   |      |  | |   |\n");
+		printf("|   |      |  | |   |\n");
+		printf("|   |      |__| |   |\n");
+		printf(" -------------------\n");
 
 		return 0;
 	}
