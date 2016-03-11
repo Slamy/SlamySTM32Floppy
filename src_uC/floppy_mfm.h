@@ -33,7 +33,7 @@ enum mfmEncodeMode
 };
 
 extern enum mfmMode mfm_mode;
-extern uint32_t mfm_cellLength;
+extern uint32_t mfm_decodeCellLength;
 
 extern volatile uint8_t mfm_decodedByte;
 extern volatile uint32_t mfm_inSync;
@@ -65,5 +65,6 @@ void mfm_blockedWaitForSyncWord(int expectNum);
 
 void mfm_blockedWrite(uint32_t word);
 void mfm_configureWrite(enum mfmEncodeMode mode, int wordLen);
+void mfm_configureWriteCellLength(uint16_t cellLength);
 
 #endif

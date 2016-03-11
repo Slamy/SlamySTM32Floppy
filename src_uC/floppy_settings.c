@@ -16,8 +16,8 @@ uint32_t geometry_payloadBytesPerSector=512;
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
 uint32_t geometry_sectors=0;
+enum floppyFormat geometry_format=FLOPPY_FORMAT_UNKNOWN;
 unsigned char geometry_iso_sectorPos[MAX_SECTORS_PER_TRACK];
-uint32_t geometry_iso_cpcSectorIdMode=0;
 
 uint32_t geometry_iso_trackstart_4e=50;
 uint32_t geometry_iso_trackstart_00=12;
@@ -33,11 +33,13 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 {
 	int i;
 
+	geometry_format=fmt;
+
 	switch (fmt)
 	{
 		case FLOPPY_FORMAT_ISO_HD:
 			mfm_mode = MFM_MODE_ISO;
-			mfm_cellLength=MFM_BITTIME_HD>>1;
+			mfm_decodeCellLength=MFM_BITTIME_HD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -46,7 +48,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 			break;
 		case FLOPPY_FORMAT_ISO_DD:
 			mfm_mode = MFM_MODE_ISO;
-			mfm_cellLength=MFM_BITTIME_DD>>1;
+			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -56,7 +58,16 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 
 		case FLOPPY_FORMAT_AMIGA_DD:
 			mfm_mode = MFM_MODE_AMIGA;
-			mfm_cellLength=MFM_BITTIME_DD>>1;
+			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+
+			geometry_cylinders=80;
+			geometry_heads=2;
+			geometry_sectors=11;
+			floppy_selectDensity(DENSITY_DOUBLE);
+			break;
+		case FLOPPY_FORMAT_RAW:
+			mfm_mode = MFM_MODE_ISO;
+			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;

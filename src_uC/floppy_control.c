@@ -179,10 +179,13 @@ void floppy_setMotor(int drive, int val)
 
 void floppy_setHead(int head)
 {
+
+	//printf("setHead %d %d\n",GPIOB->IDR & GPIO_Pin_11,head);
 	if (head)
 		GPIOB->BSRRH = GPIO_Pin_11; //set /SIDE1 low -> head 1
 	else
 		GPIOB->BSRRL = GPIO_Pin_11; //set /SIDE1 high -> head 0
+	//printf(" %d\n",GPIOB->IDR & GPIO_Pin_11);
 }
 
 #define STEP_WAIT_TIME 125
@@ -273,11 +276,13 @@ void floppy_stepToCylinder(unsigned int wantedCyl)
 
 void floppy_setWriteGate(int val)
 {
-
+	//printf("setWriteGate %d",GPIOB->IDR & GPIO_Pin_5);
 	if (val)
 		GPIOB->BSRRH=GPIO_Pin_5; //set /WGATE to low
 	else
 		GPIOB->BSRRL=GPIO_Pin_5; //set /WGATE to high
+
+	//printf(" %d %d\n",val,GPIOB->IDR & GPIO_Pin_5);
 }
 
 
@@ -356,5 +361,6 @@ void floppy_measureRpm()
 		printf("%.1f RPM\n",rpm);
 	}
 }
+
 
 

@@ -40,7 +40,6 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 	*/
 
 
-
 	if (floppy_waitForIndex())
 		return 1;
 
@@ -48,12 +47,9 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 	{
 		floppy_setWriteGate(1);
 
-
 		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
-		/*
 		if (floppy_waitForIndex())
 			return 1;
-		*/
 	}
 
 	//printf("Index!\n");
@@ -113,7 +109,7 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		crc_shiftByte(head);
 
 		//unsigned char sectorId=floppy_iso_getSectorNum(sector);
-		if (geometry_iso_cpcSectorIdMode)
+		if (geometry_format == FLOPPY_FORMAT_CPC_DD)
 		{
 			mfm_blockedWrite(sector | 0xC0);
 			crc_shiftByte(sector | 0xC0);
@@ -285,7 +281,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		{
 			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_sec);
 
-			if (geometry_iso_cpcSectorIdMode)
+			if (geometry_format == FLOPPY_FORMAT_CPC_DD)
 				header_sec&=0xf; //remove 0xc0
 
 			if (!trackSectorDetected[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)])

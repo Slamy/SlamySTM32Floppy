@@ -14,6 +14,7 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "assert.h"
 
 uint32_t byteSwap(uint32_t num)
 {
@@ -33,6 +34,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 
 	//Die Datenchecksumme aller Sektoren MUSS vorher feststehen.
 
+	assert ((head * geometry_sectors * geometry_payloadBytesPerSector) < CYLINDER_BUFFER_SIZE);
 	trackBuf=&trackBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
 
 	for (sector=0; sector < geometry_sectors; sector++)
@@ -48,6 +50,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 		}
 	}
 
+	assert ((head * geometry_sectors * geometry_payloadBytesPerSector) < CYLINDER_BUFFER_SIZE);
 	trackBuf=&trackBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
 
 	if (floppy_waitForIndex())
@@ -233,7 +236,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 			amiga_checksum^=(mfm_savedRawWord & AMIGA_MFM_MASK);
 
 			trackReadState++;
-
+			//printf("AmiSec BeforeChecksum: %x\n",amiga_sectorHeader);
 			i=0;
 			break;
 
@@ -279,9 +282,8 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 				{
 					//Die Header-Checksumme ist 0. Das ist gut!
 
+					//printf("AmiSec: %x\n",amiga_sectorHeader);
 					/*
-					printf("AmiSec: %x\n",amiga_sectorHeader);
-
 					printf("%x %x %x %x\n",
 							amiga_rawMfm_unshifted[0],
 							amiga_rawMfm_unshifted[1],
@@ -305,7 +307,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 
 					if (header_head != expectedHead)
 					{
-						printf("Head is wrong!\n");
+						printf("Head is wrong: %d %d\n",header_head, expectedHead);
 						header_cyl=0;
 						header_head=0;
 						header_sec=0;

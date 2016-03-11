@@ -11,6 +11,7 @@
 #include "floppy_control.h"
 #include "floppy_mfm.h"
 #include "tm_stm32f4_usb_vcp.h"
+#include "assert.h"
 
 volatile int systickCnt=0;
 volatile int floppySpinTimeOut=0;
@@ -200,6 +201,7 @@ int main()
 
 						unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
 						int totalBytesToTransmit=geometry_sectors * geometry_payloadBytesPerSector * geometry_heads;
+
 						//printf("  sending %d byte\n",totalBytesToTransmit);
 						int bytesToTransmit;
 
@@ -241,13 +243,13 @@ int main()
 						usb_startTransmit(4);
 					}
 				}
-				else if (usb_recv_data[6]==2 && usb_recv_len==7) //discover Format
+				else if (usb_recv_data[6]==2 && usb_recv_len==9) //discover Format
 				{
 					floppy_selectDrive(DRIVE_SELECT_A);
 					floppy_setMotor(0,1);
 
 					printf("floppy_discoverFloppyFormat\n");
-					enum floppyFormat fmt=floppy_discoverFloppyFormat();
+					enum floppyFormat fmt=floppy_discoverFloppyFormat(usb_recv_data[7],usb_recv_data[8]);
 
 					usb_send_data=usb_blockedGetTxBuf();
 					usb_send_data[0]='F';
@@ -258,13 +260,11 @@ int main()
 					printf("fmt id %d\n",fmt);
 					usb_startTransmit(5);
 				}
-				else if (usb_recv_data[6]==3 && usb_recv_len==13) //configure
+				else if (usb_recv_data[6]==3 && usb_recv_len==12) //configure
 				{
 					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10]);
 
-					geometry_iso_cpcSectorIdMode=usb_recv_data[12];
-
-					if (mfm_mode==MFM_MODE_ISO && usb_recv_data[11]==0x12)
+					if (mfm_mode==MFM_MODE_ISO && usb_recv_data[11]==0x12 && geometry_format!=FLOPPY_FORMAT_RAW)
 					{
 						floppy_selectDrive(DRIVE_SELECT_A);
 						floppy_setMotor(0,1);
@@ -280,22 +280,28 @@ int main()
 					usb_send_data[1]='K';
 					usb_startTransmit(2);
 				}
-				else if (usb_recv_data[6]==4 && usb_recv_len==(10+18)) //write cylinder
+				else if (usb_recv_data[6]==4 && usb_recv_len==(12+18)) //write cylinder
 				{
 					int cylinder=usb_recv_data[7];
 					geometry_heads=usb_recv_data[8];
 					geometry_sectors=usb_recv_data[9];
+					int totalBytesToReceive=(((int)usb_recv_data[10]<<8) | usb_recv_data[11]) + 2 ;//2 CRC Bytes
 
-					memcpy(geometry_iso_sectorPos,(void*)&usb_recv_data[10],MAX_SECTORS_PER_TRACK);
+					memcpy(geometry_iso_sectorPos,(void*)&usb_recv_data[12],MAX_SECTORS_PER_TRACK);
 
 					//printf("Debug %d %d %d\n",geometry_iso_sectorPos[8],geometry_iso_sectorPos[9],geometry_iso_sectorPos[10]);
 					unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
 
-					int totalBytesToReceive=geometry_sectors * geometry_heads * geometry_payloadBytesPerSector + 2; //2 CRC Bytes
-					printf("Write cyl %d with %d sectors...\n",(int)cylinder,(int)geometry_sectors);
+					//int totalBytesToReceive=geometry_sectors * geometry_heads * geometry_payloadBytesPerSector + 2; //2 CRC Bytes
+
+					printf("Write cyl %d with %d sectors ... waiting for %d byte \n",(int)cylinder,(int)geometry_sectors,totalBytesToReceive);
 
 					crc=0xffff;
 					usb_releaseRecvBuffer();
+					assert(totalBytesToReceive < sizeof(trackBuffer));
+
+					assert (trkBufPtr >= &trackBuffer[0]);
+					assert (trkBufPtr < &trackBuffer[CYLINDER_BUFFER_SIZE]);
 
 					while (totalBytesToReceive > 0)
 					{
@@ -322,6 +328,9 @@ int main()
 						trkBufPtr+=usb_recv_len;
 						usb_releaseRecvBuffer();
 					}
+
+					assert (trkBufPtr >= &trackBuffer[0]);
+					assert (trkBufPtr < &trackBuffer[CYLINDER_BUFFER_SIZE]);
 
 					//Die CRC muss nun stimmen, also 0 sein, da sie Teil der Daten war.
 

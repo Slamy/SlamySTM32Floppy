@@ -21,7 +21,13 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead);
 int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate);
 
 //extern uint8_t trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
-extern uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
+//extern uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
+
+#define CYLINDER_BUFFER_SIZE (14000 * 2) //basierend auf Turrican2.ipf
+//#define CYLINDER_BUFFER_SIZE (20000 * 2) //testweise etwas mehr
+
+
+extern uint32_t trackBuffer[CYLINDER_BUFFER_SIZE / 4];
 
 extern unsigned int trackReadState;
 extern unsigned int sectorsRead;

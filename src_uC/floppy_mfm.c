@@ -18,7 +18,7 @@ volatile static uint32_t shiftedBits=0;
 static unsigned int mfm_timeOut=0;
 unsigned int mfm_errorHappened=0;
 
-uint32_t mfm_cellLength=MFM_BITTIME_DD/2;
+uint32_t mfm_decodeCellLength=MFM_BITTIME_DD/2;
 
 enum mfmMode mfm_mode;
 uint32_t mfm_sectorsPerTrack=0;
@@ -73,9 +73,9 @@ void mfm_iso_transitionHandler()
 	{
 		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
 		//printf("diff:%d\n",diff);
-		while (diff > mfm_cellLength + mfm_cellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 		{
-			diff-=mfm_cellLength;
+			diff-=mfm_decodeCellLength;
 			rawMFM<<=1;
 			if ((shiftedBits&1)!=0)
 			{
@@ -107,7 +107,7 @@ void mfm_amiga_decode()
 	printf("%08x %2d %d ",rawMFM,shiftedBits,mfm_inSync);
 	printLongBin(rawMFM);
 	printf("\n");
-	*/
+	 */
 
 	if (mfm_inSync && shiftedBits==32)
 	{
@@ -141,9 +141,9 @@ void mfm_amiga_transitionHandler()
 	{
 		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
 		//printf("diff:%d\n",diff);
-		while (diff > mfm_cellLength + mfm_cellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 		{
-			diff-=mfm_cellLength;
+			diff-=mfm_decodeCellLength;
 			rawMFM<<=1;
 			shiftedBits++;
 			mfm_amiga_decode();
@@ -218,6 +218,7 @@ static volatile uint32_t mfm_write_nextWord=0;
 static volatile uint32_t mfm_write_nextWord_mask=0x80;
 static volatile enum mfmEncodeMode mfm_write_nextWord_encodeMode=0;
 static volatile uint32_t mfm_write_nextWord_len=0;
+static volatile uint16_t mfm_write_nextWord_cellLength=0;
 
 static volatile uint32_t mfm_write_busy=0;
 
@@ -225,6 +226,7 @@ static volatile uint32_t mfm_write_currentWord_mask=0x80;
 static volatile uint32_t mfm_write_currentWord_len=0;
 static volatile uint32_t mfm_write_currentWord_bit=0;
 static volatile uint32_t mfm_write_currentWord=0;
+static volatile uint16_t mfm_write_currentWord_cellLength=0;
 static volatile enum mfmEncodeMode mfm_write_currentWord_encodeMode=0;
 
 static volatile uint32_t mfm_write_lastBit=0;
@@ -239,7 +241,24 @@ uint16_t mfm_write_calcNextPauseLen(void)
 											mfm_write_currentWord_encodeMode,
 											mfm_write_currentWord_bit,
 											mfm_write_currentWord_mask);
-	*/
+	 */
+
+	//Wenn der Raw Mode aktiv ist und keine 1en existieren, so pausieren wir den ganzen Automaten für ein paar MFM Zellen und machen dann weiter
+
+	if (!mfm_write_currentWord_cellLength)
+		mfm_write_currentWord_cellLength=mfm_decodeCellLength;
+
+	if (mfm_write_currentWord_encodeMode == MFM_RAW && mfm_write_currentWord==0)
+	{
+		mfm_write_currentWord_bit=0;
+		mfm_write_currentWord=mfm_write_nextWord;
+		mfm_write_currentWord_encodeMode=mfm_write_nextWord_encodeMode;
+		mfm_write_currentWord_len=mfm_write_nextWord_len;
+		mfm_write_currentWord_mask=mfm_write_nextWord_mask;
+		mfm_write_currentWord_cellLength=mfm_write_nextWord_cellLength;
+		mfm_write_busy=0;
+		return mfm_decodeCellLength*8;
+	}
 
 	while (!pauseLenRet) //wir akkumulieren Pausenzeiten, bis eine 1 Transition kommt.
 	{
@@ -249,13 +268,13 @@ uint16_t mfm_write_calcNextPauseLen(void)
 			if (mfm_write_currentWord & mfm_write_currentWord_mask)
 			{
 				//eine 1 bedeutet eine zelle pause und eine transition
-				pauseLenRet=mfm_cellLength + pauseLenAccu;
+				pauseLenRet=mfm_write_currentWord_cellLength + pauseLenAccu;
 				pauseLenAccu=0;
 			}
 			else
 			{
 				//eine 0 ist eine Pause. Wir müssen noch warten
-				pauseLenAccu+=mfm_cellLength;
+				pauseLenAccu+=mfm_write_currentWord_cellLength;
 			}
 		}
 		else
@@ -263,7 +282,7 @@ uint16_t mfm_write_calcNextPauseLen(void)
 			if (mfm_write_currentWord & mfm_write_currentWord_mask)
 			{
 				//Eine 1 ist immer 01. 0 ist eine Pause. 1 ist eine Pause mit Transition.
-				pauseLenRet=pauseLenAccu + (mfm_cellLength<<1);
+				pauseLenRet=pauseLenAccu + (mfm_write_currentWord_cellLength<<1);
 				pauseLenAccu=0;
 				mfm_write_lastBit=1;
 			}
@@ -273,13 +292,13 @@ uint16_t mfm_write_calcNextPauseLen(void)
 				{
 					//Wenn das letzte Bit eine 1 war, dann brauchen wir hier nichts zu tun. 00. Also 2 Pausen
 
-					pauseLenAccu += mfm_cellLength<<1;
+					pauseLenAccu += mfm_write_currentWord_cellLength<<1;
 				}
 				else
 				{
 					//Das letzte Bit war schon eine 0. Dann direkt eine Transition NACH einer Pause erzeugen und eine Pause hinten dran.
-					pauseLenRet = mfm_cellLength+pauseLenAccu;
-					pauseLenAccu = mfm_cellLength;
+					pauseLenRet = mfm_write_currentWord_cellLength+pauseLenAccu;
+					pauseLenAccu = mfm_write_currentWord_cellLength;
 
 				}
 
@@ -300,6 +319,7 @@ uint16_t mfm_write_calcNextPauseLen(void)
 			mfm_write_currentWord_encodeMode=mfm_write_nextWord_encodeMode;
 			mfm_write_currentWord_len=mfm_write_nextWord_len;
 			mfm_write_currentWord_mask=mfm_write_nextWord_mask;
+			mfm_write_currentWord_cellLength=mfm_write_nextWord_cellLength;
 			mfm_write_busy=0;
 		}
 	}
@@ -655,6 +675,7 @@ void mfm_blockedRead()
 
 void mfm_blockedWrite(uint32_t word)
 {
+	//printf("mfm_blockedWrite %x\n",word);
 	mfm_write_nextWord=word;
 	mfm_write_busy=1;
 	while (mfm_write_busy)
@@ -679,4 +700,14 @@ void mfm_configureWrite(enum mfmEncodeMode mode, int wordLen)
 		mfm_write_nextWord_mask=1<<(wordLen-1);
 }
 
+void mfm_configureWriteCellLength(uint16_t cellLength)
+{
+	if (cellLength)
+	{
+		//printf("mfm_write_nextWord_cellLength %d\n",cellLength);
+		mfm_write_nextWord_cellLength=cellLength;
+	}
+	else
+		mfm_write_nextWord_cellLength=mfm_decodeCellLength;
+}
 

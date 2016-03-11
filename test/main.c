@@ -144,6 +144,31 @@ void addTransitionTime(unsigned int diff)
 
 int transTimeAccu=0;
 
+void addMfmRawTransitionTimes_char(unsigned char mfmRaw)
+{
+	//printf("addMfmRawTransitionTimes %x\n",mfmRaw);
+
+	int i;
+
+	for (i=0;i<8;i++)
+	{
+		if (mfmRaw & 0x80)
+		{
+			transTimeAccu+=MFM_BITTIME_DD>>1;
+			addTransitionTime(transTimeAccu);
+			transTimeAccu=0;
+		}
+		else
+		{
+			transTimeAccu+=MFM_BITTIME_DD>>1;
+		}
+
+		mfmRaw<<=1;
+
+	}
+}
+
+
 void addMfmRawTransitionTimes_short(unsigned short mfmRaw)
 {
 	//printf("addMfmRawTransitionTimes %x\n",mfmRaw);
@@ -345,8 +370,8 @@ void activeWaitCbk()
 
 void main()
 {
+	int i;
 	printf("Slamy STM32 Floppy Controller - C Unit\n");
-
 
 
 	//make a sector header for ISO
@@ -564,7 +589,7 @@ void main()
 
 #endif
 
-#if 1
+#if 0
 	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
 
 	floppy_amiga_writeTrack(0,0,0);
@@ -581,5 +606,52 @@ void main()
 		floppy_amiga_readTrackMachine(0,0);
 	}
 #endif
+
+#if 0
+	uint8_t *trackData=trackBuffer;
+
+	trackData[0]=0;
+	trackData[1]=255;
+	for (i=2;i<255;i++)
+	{
+		trackData[i]=0xaa;
+	}
+
+	floppy_configureFormat(FLOPPY_FORMAT_RAW,0,0,0);
+	floppy_writeRawTrack(0,0);
+
+#endif
+
+	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xa9);
+	addMfmRawTransitionTimes_char(0x12);
+	addMfmRawTransitionTimes_char(0x25);
+	addMfmRawTransitionTimes_char(0x12);
+	addMfmRawTransitionTimes_char(0x25);
+	addMfmRawTransitionTimes_char(0x54);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0x95);
+	addMfmRawTransitionTimes_char(0x54);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xa4);
+	addMfmRawTransitionTimes_char(0xaa);
+	addMfmRawTransitionTimes_char(0xaa);
+	addTransitionTimeDisabled=1;
+	enableTransitionTimeRead=1;
+
+	floppy_readTrackMachine_init();
+	for(;;)
+	{
+		//Ein bissle die Machine ausführen....
+
+		floppy_amiga_readTrackMachine(0,0);
+	}
+
 }
 

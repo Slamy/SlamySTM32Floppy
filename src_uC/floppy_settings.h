@@ -8,10 +8,17 @@
 enum floppyFormat
 {
 	FLOPPY_FORMAT_UNKNOWN,
+
+	/* Discoverable formats */
 	FLOPPY_FORMAT_ISO_DD,
 	FLOPPY_FORMAT_ISO_HD,
-	FLOPPY_FORMAT_AMIGA_DD
+	FLOPPY_FORMAT_AMIGA_DD,
+
+	/* Special formats */
+	FLOPPY_FORMAT_CPC_DD,
+	FLOPPY_FORMAT_RAW
 };
+
 
 #define MAX_SECTORS_PER_TRACK 18
 #define MAX_HEADS 2
@@ -23,8 +30,8 @@ extern uint32_t geometry_payloadBytesPerSector;
 extern uint32_t geometry_cylinders;
 extern uint32_t geometry_heads;
 extern uint32_t geometry_sectors;
+extern enum floppyFormat geometry_format;
 extern unsigned char geometry_iso_sectorPos[MAX_SECTORS_PER_TRACK];
-extern uint32_t geometry_iso_cpcSectorIdMode;
 
 extern uint32_t geometry_iso_trackstart_4e;
 extern uint32_t geometry_iso_trackstart_00;
