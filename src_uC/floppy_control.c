@@ -325,6 +325,7 @@ int floppy_waitForIndex()
 		}
 	}
 	indexHappened=0;
+	indexOverflowCount=0;
 
 	return 0;
 }

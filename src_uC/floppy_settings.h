@@ -15,7 +15,6 @@ enum floppyFormat
 	FLOPPY_FORMAT_AMIGA_DD,
 
 	/* Special formats */
-	FLOPPY_FORMAT_CPC_DD,
 	FLOPPY_FORMAT_RAW
 };
 
@@ -31,16 +30,25 @@ extern uint32_t geometry_cylinders;
 extern uint32_t geometry_heads;
 extern uint32_t geometry_sectors;
 extern enum floppyFormat geometry_format;
-extern unsigned char geometry_iso_sectorPos[MAX_SECTORS_PER_TRACK];
+extern unsigned short geometry_actualSectorSize[MAX_SECTORS_PER_TRACK]; //tatsächliche Größe der Daten in Byte
 
-extern uint32_t geometry_iso_trackstart_4e;
-extern uint32_t geometry_iso_trackstart_00;
+extern unsigned char geometry_iso_sectorId[MAX_SECTORS_PER_TRACK]; //Interleaving ist damit auch abgedeckt
+extern unsigned char geometry_iso_sectorHeaderSize[MAX_SECTORS_PER_TRACK]; //z.B. 2 für 512 Byte Sektoren
+extern unsigned char geometry_iso_sectorErased[MAX_SECTORS_PER_TRACK];
 
-extern uint32_t geometry_iso_before_idam_4e;
-extern uint32_t geometry_iso_before_idam_00;
+extern unsigned char geometry_iso_fillerByte;
 
-extern uint32_t geometry_iso_before_data_4e;
-extern uint32_t geometry_iso_before_data_00;
+extern unsigned char geometry_iso_gap1_postIndex;	//32x 4E
+
+extern unsigned char geometry_iso_gap2_preID_00;	//12x 00
+
+extern unsigned char geometry_iso_gap3_postID;		//22x 4E
+extern unsigned char geometry_iso_gap3_preData_00;	//12x 00
+
+extern unsigned char geometry_iso_gap4_postData;	//24x 4E
+
+extern unsigned char geometry_iso_gap5_preIndex;	//16x 4E
+
 
 void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors);
 

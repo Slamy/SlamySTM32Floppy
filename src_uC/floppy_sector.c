@@ -13,7 +13,8 @@
 
 //unsigned char trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
 
-uint32_t trackBuffer[CYLINDER_BUFFER_SIZE / 4];
+uint32_t cylinderBuffer[CYLINDER_BUFFER_SIZE / 4];
+uint32_t cylinderSize=0;
 
 unsigned int trackReadState=0;
 unsigned int sectorsRead=0;
@@ -143,6 +144,19 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 		while (sectorsRead < geometry_sectors && !abortVerify)
 		{
 
+			int readTrackMachineRet;
+
+			if (mfm_mode == MFM_MODE_AMIGA)
+				readTrackMachineRet=floppy_amiga_readTrackMachine(cylinder,head);
+			else
+				readTrackMachineRet=floppy_iso_readTrackMachine(cylinder,head);
+
+			if (readTrackMachineRet)
+			{
+				printf("readTrackMachineRet:%d\n",readTrackMachineRet);
+				abortVerify=1;
+			}
+
 			if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
 			{
 				//printf("TO\n");
@@ -168,18 +182,6 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 				}
 			}
 
-			int readTrackMachineRet;
-
-			if (mfm_mode == MFM_MODE_AMIGA)
-				readTrackMachineRet=floppy_amiga_readTrackMachine(cylinder,head);
-			else
-				readTrackMachineRet=floppy_iso_readTrackMachine(cylinder,head);
-
-			if (readTrackMachineRet)
-			{
-				printf("readTrackMachineRet:%d\n",readTrackMachineRet);
-				abortVerify=1;
-			}
 		}
 		mfm_read_setEnableState(DISABLE);
 
@@ -195,14 +197,13 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 #define RAWBLOCK_TYPE_HAS_VARIABLE_DENSITY 2
 #define RAWBLOCK_TYPE_TIME_DATA 4
 
-int raw_cellLengthDecrement=0;
-
 int floppy_writeRawTrack(int cylinder, int head)
 {
 	int i;
 	uint8_t *trackData=NULL;
 	uint8_t *timeData=NULL;
 
+	static int raw_cellLengthDecrement=0;
 
 	int trackDataSize=0;
 	int timeDataSize=0;
@@ -211,7 +212,7 @@ int floppy_writeRawTrack(int cylinder, int head)
 	unsigned int timeDataCellReloadPos=0;
 	int timeDataUsed=0;
 
-	uint8_t *cylBufPtr=trackBuffer;
+	uint8_t *cylBufPtr=cylinderBuffer;
 	while ( (timeDataUsed && (!trackData || !timeData)) || (!timeDataUsed && !trackData) )
 	{
 
@@ -249,8 +250,8 @@ int floppy_writeRawTrack(int cylinder, int head)
 	}
 
 
-	assert (trackData >= &trackBuffer[0]);
-	assert (trackData + trackDataSize < &trackBuffer[CYLINDER_BUFFER_SIZE]);
+	assert (trackData >= &cylinderBuffer[0]);
+	assert (trackData + trackDataSize < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
 	printf("floppy_writeRawTrack %d %d %d %d %d\n",cylinder,head,trackDataSize,timeDataSize,timeDataUsed);
 
@@ -386,8 +387,8 @@ int floppy_writeRawTrack(int cylinder, int head)
 				else
 					assert((GPIOB->IDR & GPIO_Pin_11));
 
-				assert (trackData >= &trackBuffer[0]);
-				assert (trackData < &trackBuffer[CYLINDER_BUFFER_SIZE]);
+				assert (trackData >= &cylinderBuffer[0]);
+				assert (trackData < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 			}
 		}
 
@@ -447,6 +448,44 @@ int floppy_writeAndVerifyCylinder(unsigned int cylinder)
 	int head=0;
 
 	floppy_stepToCylinder(cylinder);
+
+	if (geometry_format == FLOPPY_FORMAT_ISO_DD || geometry_format == FLOPPY_FORMAT_ISO_HD)
+	{
+		int i;
+		uint8_t *cylinderBufu8=(uint8_t*)cylinderBuffer;
+		for(i=0;i<geometry_sectors;i++)
+		{
+			geometry_iso_sectorId[i]=*cylinderBufu8;
+			cylinderBufu8++;
+
+		}
+
+		for(i=0;i<geometry_sectors;i++)
+		{
+			geometry_iso_sectorHeaderSize[i]=*cylinderBufu8 & 0x0f;
+			geometry_iso_sectorErased[i]=(*cylinderBufu8 & 0x80) ? 1 : 0;
+			cylinderBufu8++;
+		}
+
+		for(i=0;i<geometry_sectors;i++)
+		{
+			geometry_actualSectorSize[i]=(((unsigned short)cylinderBufu8[0])<<8) | (unsigned short)cylinderBufu8[1];
+			cylinderBufu8+=2;
+		}
+
+
+		printf("floppy_writeAndVerifyCylinder with ISO custom settings:\n");
+		for(i=0;i<geometry_sectors;i++)
+		{
+			printf("%d %x %d %d %d\n",
+					i,
+					geometry_iso_sectorId[i],
+					geometry_iso_sectorHeaderSize[i],
+					geometry_iso_sectorErased[i],
+					geometry_actualSectorSize[i]);
+		}
+
+	}
 
 	//Nach dem steppen warten wir einmal zusätzlich auf den Index.
 	floppy_waitForIndex();

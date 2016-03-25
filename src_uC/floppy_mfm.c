@@ -5,6 +5,7 @@
 #include "stm32f4xx_tim.h"
 #include "stm32f4xx_rcc.h"
 #include "floppy_mfm.h"
+#include "floppy_control.h"
 
 volatile uint32_t mfm_savedRawWord=0;
 volatile uint8_t mfm_decodedByte=0;
@@ -14,6 +15,7 @@ volatile uint32_t mfm_decodedByteValid=0;
 volatile static uint32_t rawMFM = 0;
 volatile static uint8_t decodedMFM = 0;
 volatile static uint32_t shiftedBits=0;
+int indexOverflowCount=0;
 
 static unsigned int mfm_timeOut=0;
 unsigned int mfm_errorHappened=0;
@@ -675,6 +677,9 @@ void mfm_blockedRead()
 
 void mfm_blockedWrite(uint32_t word)
 {
+	if (indexHappened)
+		indexOverflowCount++;
+
 	//printf("mfm_blockedWrite %x\n",word);
 	mfm_write_nextWord=word;
 	mfm_write_busy=1;

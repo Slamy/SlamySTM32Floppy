@@ -14,23 +14,63 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "assert.h"
 
-#define DATA_AFTER_4E 2
-
-int floppy_iso_getSectorNum(int sectorPos)
+unsigned int floppy_iso_getSectorPos(unsigned char sectorId)
 {
-	//return ((sectorPos-1)*(geometry_iso_sectorInterleave+1) % geometry_sectors) +1;
-	return geometry_iso_sectorPos[sectorPos-1];
+	int i;
+	for (i=0;i< geometry_sectors; i++)
+	{
+		if (geometry_iso_sectorId[i]==sectorId)
+		{
+			return i;
+		}
+	}
+
+	return -1;
 }
 
+unsigned char *floppy_iso_getBufPtr(unsigned char sectorId, unsigned int head)
+{
+	int i;
+	int bytesIntoTrack=0;
+
+	for (i=0;i< geometry_sectors; i++)
+	{
+		//printf("floppy_iso_getBufPtr %x %x\n",geometry_iso_sectorId[i],sectorId);
+		if (geometry_iso_sectorId[i]==sectorId)
+		{
+			//Wir haben den passenden Sektor gefunden. Nun die Adresse ausrechnen...
+
+			if (head)
+			{
+				int lenOfOneTrack=(cylinderSize-4*geometry_sectors)/2;
+				//printf("floppy_iso_getBufPtr %d %d\n",lenOfOneTrack,bytesIntoTrack);
+				return &((uint8_t*)cylinderBuffer)[bytesIntoTrack+4*geometry_sectors+lenOfOneTrack];
+			}
+			else
+			{
+				//printf("bytesToInTrack:%d\n",bytesToInTrack);
+				return &((uint8_t*)cylinderBuffer)[bytesIntoTrack+4*geometry_sectors];
+			}
+
+		}
+		bytesIntoTrack+=geometry_actualSectorSize[i];
+	}
+
+	printf("floppy_iso_getBufPtr failed with %x %d\n",sectorId,head);
+	//assert(0);
+	return NULL;
+}
 
 int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 {
-	static uint8_t *sectorData;
-
+	uint8_t *sectorData;
+	static int iso_cellLengthDecrement=0;
 	int i;
-	int sector;
 	int sectorPos;
+
+	printf("floppy_iso_writeTrack %d %d\n",cylinder,head);
 
 	/*
 	printf("Sektors %d -> ",geometry_sectors);
@@ -40,131 +80,204 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 	*/
 
 
+	int dataPos=geometry_sectors*4; //Überspringe 4 Byte pro Sektor wegen den "ISO Custom Settings"
+	if (head)
+	{
+		for (sectorPos=0; sectorPos < geometry_sectors; sectorPos++)
+			dataPos+=geometry_actualSectorSize[sectorPos];
+	}
+
+	for (sectorPos=0; sectorPos < geometry_sectors; sectorPos++)
+	{
+		sectorData=&((uint8_t*)cylinderBuffer)[dataPos];
+
+		printf("%d %x %d %d %d data %02x ... %02x\n",
+				sectorPos,
+				geometry_iso_sectorId[sectorPos],
+				geometry_iso_sectorHeaderSize[sectorPos],
+				geometry_actualSectorSize[sectorPos],
+				geometry_iso_sectorErased[sectorPos],
+				sectorData[0],
+				sectorData[geometry_actualSectorSize[sectorPos]-1]);
+
+		dataPos+=geometry_actualSectorSize[sectorPos];
+	}
+
 	if (floppy_waitForIndex())
 		return 1;
 
-	if (!simulate)
+	mfm_configureWrite(MFM_ENCODE,8);
+	mfm_configureWriteCellLength(mfm_decodeCellLength);
+
+	mfm_blockedWrite(0x00);
+
+	//iso_cellLengthDecrement=6;
+
+	//geometry_iso_gap1_postIndex=0;
+	//geometry_iso_gap4_postData=0;
+	//geometry_iso_gap5_preIndex=0;
+
+	//mfm_configureWriteCellLength(MFM_BITTIME_DD/2);
+
+	do
 	{
 		floppy_setWriteGate(1);
+
+		mfm_configureWrite(MFM_ENCODE,8);
+		mfm_configureWriteCellLength(mfm_decodeCellLength - iso_cellLengthDecrement);
 
 		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
 		if (floppy_waitForIndex())
 			return 1;
+
+		//printf("Index!\n");
+
+
+		//if (geometry_iso_trackstart_00)
+
+		for (i=0;i<geometry_iso_gap1_postIndex;i++)
+			mfm_blockedWrite(geometry_iso_fillerByte);
+
+		{
+			//Nun der Track Header, wenn überhaupt erwünscht.
+
+			for (i=0;i<12;i++)
+				mfm_blockedWrite(0x00);
+
+			mfm_configureWrite(MFM_RAW,16);
+			for (i=0;i<3;i++)
+				mfm_blockedWrite(0x5524);
+			mfm_configureWrite(MFM_ENCODE,8);
+
+			mfm_blockedWrite(0xFC);
+		}
+
+		for (i=0;i<geometry_iso_gap1_postIndex;i++)
+			mfm_blockedWrite(geometry_iso_fillerByte);
+
+
+		int dataPos=geometry_sectors*4; //Überspringe 4 Byte pro Sektor wegen den "ISO Custom Settings"
+		if (head)
+		{
+			for (sectorPos=0; sectorPos < geometry_sectors; sectorPos++)
+				dataPos+=geometry_actualSectorSize[sectorPos];
+		}
+
+		//printf("%d %p %x\n",dataPos,&((uint8_t*)cylinderBuffer)[dataPos],((uint8_t*)cylinderBuffer)[dataPos]);
+
+		for (sectorPos=0; sectorPos < geometry_sectors; sectorPos++)
+		//for (sector=1; sector <= geometry_sectors; sector++)
+		{
+			//printf("Write Sektor %d\n",sector);
+
+			//Jetzt die einzelnen Sektoren. Erst der Header nach einem Gap
+
+			//Gap 2 Pre Id. Normalerweise 12x 00
+			for (i=0;i<geometry_iso_gap2_preID_00;i++)
+				mfm_blockedWrite(0x00);
+
+			crc=0xffff;
+
+			mfm_configureWrite(MFM_RAW,16);
+			for (i=0;i<3;i++)
+			{
+				mfm_blockedWrite(0x4489);
+				crc_shiftByte(0xa1);
+			}
+			mfm_configureWrite(MFM_ENCODE,8);
+
+			mfm_blockedWrite(0xfe);
+			crc_shiftByte(0xfe);
+
+			mfm_blockedWrite(cylinder);
+			crc_shiftByte(cylinder);
+
+			mfm_blockedWrite(head);
+			crc_shiftByte(head);
+
+			//unsigned char sectorId=floppy_iso_getSectorNum(sector);
+			mfm_blockedWrite(geometry_iso_sectorId[sectorPos]);
+			crc_shiftByte(geometry_iso_sectorId[sectorPos]);
+
+			mfm_blockedWrite(geometry_iso_sectorHeaderSize[sectorPos]);
+			crc_shiftByte(geometry_iso_sectorHeaderSize[sectorPos]);
+
+			mfm_blockedWrite(crc>>8);
+			mfm_blockedWrite(crc&0xff);
+
+			//Das war der Header. Jetzt wieder ein Gap und dann die Daten.
+			crc=0xffff;
+
+			//Gap 3
+			for (i=0;i<geometry_iso_gap3_postID;i++)
+				mfm_blockedWrite(geometry_iso_fillerByte);
+
+			for (i=0;i<geometry_iso_gap3_preData_00;i++)
+				mfm_blockedWrite(0x00);
+
+			mfm_configureWrite(MFM_RAW,16);
+			for (i=0;i<3;i++)
+			{
+				mfm_blockedWrite(0x4489);
+				crc_shiftByte(0xa1);
+			}
+			mfm_configureWrite(MFM_ENCODE,8);
+
+			sectorData=&((uint8_t*)cylinderBuffer)[dataPos];
+			//printf("sectorData calc %d %d %d %d %p %p\n",sector, head, geometry_sectors, geometry_payloadBytesPerSector,sectorData,&trackBuffer);
+
+			if (geometry_iso_sectorErased[sectorPos])
+			{
+				mfm_blockedWrite(0xf8); //Deleted Data Address Mark
+				crc_shiftByte(0xf8);
+			}
+			else
+			{
+				mfm_blockedWrite(0xfb); //Data Address Mark
+				crc_shiftByte(0xfb);
+			}
+
+			//crc=0xFFFF;
+			for (i=0;i<geometry_actualSectorSize[sectorPos];i++)
+			{
+				mfm_blockedWrite(sectorData[i]);
+				crc_shiftByte(sectorData[i]);
+			}
+
+			mfm_blockedWrite(crc>>8);
+			mfm_blockedWrite(crc&0xff);
+
+			dataPos+=geometry_actualSectorSize[sectorPos];
+
+
+			for (i=0;i<geometry_iso_gap4_postData;i++)
+				mfm_blockedWrite(geometry_iso_fillerByte);
+		}
+
+		if (geometry_iso_gap5_preIndex < 2)
+		{
+			mfm_blockedWrite(geometry_iso_fillerByte);
+			mfm_blockedWrite(geometry_iso_fillerByte);
+		}
+
+		for (i=0;i<geometry_iso_gap5_preIndex;i++)
+			mfm_blockedWrite(geometry_iso_fillerByte);
+
+		floppy_setWriteGate(0);
+
+		for (i=0;i<5;i++)
+			mfm_blockedWrite(geometry_iso_fillerByte);
+
+
+		if (indexOverflowCount)
+		{
+			printf("floppy_iso_writeTrack index overflow %d %d\n",indexOverflowCount,iso_cellLengthDecrement);
+			//if (floppy_iso_reduceGap())
+			iso_cellLengthDecrement++;
+		}
 	}
+	while (indexOverflowCount);
 
-	//printf("Index!\n");
-
-	mfm_configureWrite(MFM_ENCODE,8);
-
-	if (geometry_iso_trackstart_00)
-	{
-		//Nun der Track Header, wenn überhaupt erwünscht.
-		for (i=0;i<geometry_iso_trackstart_4e;i++)
-			mfm_blockedWrite(0x4E);
-
-		for (i=0;i<geometry_iso_trackstart_00;i++)
-			mfm_blockedWrite(0x00);
-
-		mfm_configureWrite(MFM_RAW,16);
-		for (i=0;i<3;i++)
-			mfm_blockedWrite(0x5524);
-		mfm_configureWrite(MFM_ENCODE,8);
-
-		mfm_blockedWrite(0xFC);
-	}
-
-
-	for (sectorPos=1; sectorPos <= geometry_sectors; sectorPos++)
-	//for (sector=1; sector <= geometry_sectors; sector++)
-	{
-		sector=floppy_iso_getSectorNum(sectorPos);
-
-		//printf("Write Sektor %d\n",sector);
-
-		//Jetzt die einzelnen Sektoren. Erst der Header nach einem Gap
-		for (i=0;i<geometry_iso_before_idam_4e;i++)
-			mfm_blockedWrite(0x4E);
-
-		for (i=0;i<geometry_iso_before_idam_00;i++)
-			mfm_blockedWrite(0x00);
-
-		crc=0xffff;
-
-		mfm_configureWrite(MFM_RAW,16);
-		for (i=0;i<3;i++)
-		{
-			mfm_blockedWrite(0x4489);
-			crc_shiftByte(0xa1);
-		}
-		mfm_configureWrite(MFM_ENCODE,8);
-
-
-		mfm_blockedWrite(0xfe);
-		crc_shiftByte(0xfe);
-
-		mfm_blockedWrite(cylinder);
-		crc_shiftByte(cylinder);
-
-		mfm_blockedWrite(head);
-		crc_shiftByte(head);
-
-		//unsigned char sectorId=floppy_iso_getSectorNum(sector);
-		if (geometry_format == FLOPPY_FORMAT_CPC_DD)
-		{
-			mfm_blockedWrite(sector | 0xC0);
-			crc_shiftByte(sector | 0xC0);
-		}
-		else
-		{
-			mfm_blockedWrite(sector);
-			crc_shiftByte(sector);
-		}
-
-		mfm_blockedWrite(2);
-		crc_shiftByte(2);
-
-		mfm_blockedWrite(crc>>8);
-		mfm_blockedWrite(crc&0xff);
-
-		//Das war der Header. Jetzt wieder ein Gap und dann die Daten.
-		crc=0xffff;
-
-		for (i=0;i<geometry_iso_before_data_4e;i++)
-			mfm_blockedWrite(0x4E);
-
-		for (i=0;i<geometry_iso_before_data_00;i++)
-			mfm_blockedWrite(0x00);
-
-		mfm_configureWrite(MFM_RAW,16);
-		for (i=0;i<3;i++)
-		{
-			mfm_blockedWrite(0x4489);
-			crc_shiftByte(0xa1);
-		}
-		mfm_configureWrite(MFM_ENCODE,8);
-
-		sectorData=&((uint8_t*)trackBuffer)[((sector-1)+(head * geometry_sectors)) * geometry_payloadBytesPerSector];
-		//printf("sectorData calc %d %d %d %d %p %p\n",sector, head, geometry_sectors, geometry_payloadBytesPerSector,sectorData,&trackBuffer);
-		//printf("%x\n",sectorData[0]);
-
-		mfm_blockedWrite(0xfb);
-		crc_shiftByte(0xfb);
-
-		//crc=0xFFFF;
-		for (i=0;i<512;i++)
-		{
-			mfm_blockedWrite(sectorData[i]);
-			crc_shiftByte(sectorData[i]);
-		}
-
-		mfm_blockedWrite(crc>>8);
-		mfm_blockedWrite(crc&0xff);
-	}
-
-	for (i=0;i<DATA_AFTER_4E;i++)
-		mfm_blockedWrite(0x4E);
-
-	floppy_setWriteGate(0);
 	return 0;
 }
 
@@ -174,7 +287,10 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 	static unsigned int header_cyl=0;
 	static unsigned int header_head=0;
-	static unsigned int header_sec=0;
+	static unsigned int header_secPos=0;
+	static unsigned int header_secId=0;
+	static unsigned int header_secDel=0;
+	static unsigned int header_secSize=0;
 
 	static unsigned int i=0;
 
@@ -189,6 +305,8 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 	{
 	case 0:
 		crc=0xFFFF; //reset crc
+		crcShiftedBytes=0;
+
 		crc_shiftByte(0xa1);
 		crc_shiftByte(0xa1);
 		crc_shiftByte(0xa1);
@@ -220,15 +338,19 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 	case 4:
 		//Es muss ein Iso Format sein. Aber ist es ein Header oder Daten?
 		mfm_blockedRead();
+		crc_shiftByte(mfm_decodedByte);
 
 		switch (mfm_decodedByte)
 		{
 			case 0xfe:
-				crc_shiftByte(mfm_decodedByte);
 				trackReadState=10; //ISO IDAM - Sector Header
 				break;
-			case 0xfb:
-				crc_shiftByte(mfm_decodedByte);
+			case 0xfb: //Data Address Mark
+				header_secDel=0;
+				trackReadState=20; //ISO DAM - Sector Data
+				break;
+			case 0xf8: //Deleted Data Address Mark
+				header_secDel=1;
 				trackReadState=20; //ISO DAM - Sector Data
 				break;
 			case 0xa1:
@@ -250,19 +372,22 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		crc_shiftByte(header_head);
 
 		mfm_blockedRead();
-		header_sec=mfm_decodedByte;
-		crc_shiftByte(header_sec);
+		header_secId=mfm_decodedByte;
+		crc_shiftByte(header_secId);
+
+		header_secPos=floppy_iso_getSectorPos(header_secId);
+
+		/*
+		header_secPos=header_secId;
+		if (geometry_format == FLOPPY_FORMAT_ISO_DD)
+			header_secPos&=0xf; //remove 0xc0
+		*/
 
 		mfm_blockedRead();
-		if (mfm_decodedByte!=2)
-		{
-			trackReadState=0;
-		}
-		else
-		{
-			crc_shiftByte(2);
-			trackReadState++;
-		}
+		header_secSize=mfm_decodedByte;
+		crc_shiftByte(header_secSize);
+
+		trackReadState++;
 		break;
 	case 11:
 		mfm_blockedRead();
@@ -272,29 +397,26 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 		if (crc != 0) //crc has to be 0 at the end for a correct result
 		{
-			printf("**** idam crc error %d %d %d\n",header_cyl,header_head,header_sec);
+			printf("**** idam crc error %d %d %d\n",header_cyl,header_head,header_secId);
 			header_cyl=0;
 			header_head=0;
-			header_sec=0;
+			header_secId=0;
 		}
 		else
 		{
-			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_sec);
+			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_secId);
 
-			if (geometry_format == FLOPPY_FORMAT_CPC_DD)
-				header_sec&=0xf; //remove 0xc0
-
-			if (!trackSectorDetected[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)])
+			if (!trackSectorDetected[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)])
 			{
 				sectorsDetected++;
-				trackSectorDetected[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
+				trackSectorDetected[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
 			}
 
 			if (header_cyl!=expectedCyl)
 			{
 				header_cyl=0;
 				header_head=0;
-				header_sec=0;
+				header_secId=0;
 				//printf("Cylinder is wrong!\n");
 				mfm_errorHappened=1;
 			}
@@ -303,19 +425,29 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 			{
 				header_cyl=0;
 				header_head=0;
-				header_sec=0;
+				header_secId=0;
 				//printf("Head is wrong!\n");
 				mfm_errorHappened=1;
 			}
 
-			if (header_sec > geometry_sectors)
+			if (header_secPos >= geometry_sectors)
 			{
 				printf("Ignore Sector!\n");
 
 				header_cyl=0;
 				header_head=0;
-				header_sec=0;
+				header_secId=0;
 			}
+
+			if (verifyMode && header_secSize != geometry_iso_sectorHeaderSize[header_secPos])
+			{
+				printf("Sector Header Size doesn't match!\n");
+				header_cyl=0;
+				header_head=0;
+				header_secId=0;
+			}
+
+			sectorData=floppy_iso_getBufPtr(header_secId,expectedHead);
 		}
 
 		trackReadState=0;
@@ -324,7 +456,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 	case 20: //DAM - Sector Data
 
-		if (header_sec==0)
+		if (header_secId==0)
 			trackReadState=0; //Keine aktuellen Headerinfos. Also zurück zum Anfang!
 		else
 		{
@@ -332,7 +464,16 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 			trackReadState++;
 			//printf("sectorData calc %d %d %d %d\n",header_sec,expectedHead,geometry_sectors,geometry_payloadBytesPerSector);
 
-			sectorData=&((uint8_t*)trackBuffer)[((header_sec-1)+(expectedHead * geometry_sectors)) * geometry_payloadBytesPerSector];
+			//sectorData=&((uint8_t*)cylinderBuffer)[((header_sec-1)+(expectedHead * geometry_sectors)) * geometry_payloadBytesPerSector];
+
+			if (sectorData==NULL)
+				mfm_errorHappened=1;
+
+			if (verifyMode && header_secDel != geometry_iso_sectorErased[header_secPos])
+			{
+				printf("dam or ddam verify failed %d %d!\n",header_secDel,geometry_iso_sectorErased[header_secPos]);
+				return 3;
+			}
 		}
 		break;
 	case 21:
@@ -341,7 +482,16 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		if (verifyMode)
 		{
 			if (sectorData[i]!=mfm_decodedByte)
+			{
+				printf("i==%d   %p %x != %x  at header_secPos %d with actual sector size %d\n",
+						i,
+						&sectorData[i],
+						sectorData[i],
+						mfm_decodedByte,
+						header_secPos,
+						geometry_actualSectorSize[header_secPos]);
 				return 3; //verify failed
+			}
 		}
 		else
 			sectorData[i]=mfm_decodedByte;
@@ -349,7 +499,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		crc_shiftByte(sectorData[i]);
 		i++;
 
-		if (i==512)
+		if (i==geometry_actualSectorSize[header_secPos])
 			trackReadState++;
 		break;
 	case 22:
@@ -361,17 +511,18 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 		if (crc != 0) //crc has to be 0 at the end for a correct result
 		{
-			printf("**** dam crc error %d %d %d\n",header_cyl,header_head,header_sec);
+			printf("**** dam crc error %x %d %d %x %d %d\n",crc,header_cyl,header_head,header_secId,geometry_actualSectorSize[header_secPos],crcShiftedBytes);
+			crc_printCheckedBytes();
 		}
 		else
 		{
 			//printf("SecDat: %d %d %d %x\n",header_cyl,header_head,header_sec,sectorData[0]);
 
 			//set this sector as a verified / read out one
-			if (!trackSectorRead[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)])
+			if (!trackSectorRead[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)])
 			{
 				sectorsRead++;
-				trackSectorRead[(header_sec-1)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
+				trackSectorRead[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)]=1;
 			}
 
 			lastSectorDataFormat=0xfb;
@@ -392,9 +543,73 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 
 
+int floppy_iso_reduceGap()
+{
+	if (geometry_iso_gap1_postIndex)
+		geometry_iso_gap1_postIndex--;
+
+	if (geometry_iso_gap4_postData)
+		geometry_iso_gap4_postData--;
+
+	if (geometry_iso_gap5_preIndex)
+		geometry_iso_gap5_preIndex--;
+
+	printf("floppy_iso_reduceGap %d %d %d\n",
+			geometry_iso_gap1_postIndex,
+			geometry_iso_gap4_postData,
+			geometry_iso_gap5_preIndex);
+
+	return (!geometry_iso_gap1_postIndex &&
+			!geometry_iso_gap4_postData &&
+			!geometry_iso_gap5_preIndex);
+
+#if 0
+	printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
+			(int)geometry_iso_trackstart_4e,
+			(int)geometry_iso_trackstart_00,
+			(int)geometry_iso_before_idam_4e,
+			(int)geometry_iso_before_idam_00,
+			(int)geometry_iso_before_data_4e,
+			(int)geometry_iso_before_data_00);
+
+	if (geometry_iso_trackstart_4e > 3)
+		geometry_iso_trackstart_4e-=3;
+
+	if (geometry_iso_trackstart_4e > 3)
+		geometry_iso_trackstart_4e-=3;
+
+	if (geometry_iso_trackstart_00 > 0)
+		geometry_iso_trackstart_00-=1;
+
+	if (geometry_iso_before_idam_4e > 2)
+		geometry_iso_before_idam_4e-=2;
+
+	if (geometry_iso_before_idam_4e > 2)
+		geometry_iso_before_idam_4e-=2;
+
+	if (geometry_iso_before_idam_00 > 2)
+		geometry_iso_before_idam_00-=1;
+
+	/*
+	if (	geometry_iso_trackstart_4e==2 &&
+			geometry_iso_trackstart_00==0 &&
+			geometry_iso_before_idam_4e==2 &&
+			geometry_iso_before_idam_00==2)
+	{
+		if (geometry_iso_before_data_4e > 1)
+			geometry_iso_before_data_4e--;
+
+		if (geometry_iso_before_data_00 > 1)
+			geometry_iso_before_data_00--;
+	}
+	*/
+#endif
+}
+
 
 int floppy_iso_calibrateTrackLength()
 {
+#if 0
 	unsigned int resultGood=0;
 	int trys=30;
 
@@ -412,37 +627,9 @@ int floppy_iso_calibrateTrackLength()
 
 		if (indexHappened)
 		{
-			printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
-					(int)geometry_iso_trackstart_4e,
-					(int)geometry_iso_trackstart_00,
-					(int)geometry_iso_before_idam_4e,
-					(int)geometry_iso_before_idam_00,
-					(int)geometry_iso_before_data_4e,
-					(int)geometry_iso_before_data_00);
-
-			if (geometry_iso_trackstart_4e > 3)
-				geometry_iso_trackstart_4e-=3;
-
-			if (geometry_iso_trackstart_4e > 3)
-				geometry_iso_trackstart_4e-=3;
 
 
-
-			if (geometry_iso_trackstart_00 > 0)
-				geometry_iso_trackstart_00-=1;
-
-
-			if (geometry_iso_before_idam_4e > 2)
-				geometry_iso_before_idam_4e-=2;
-
-			if (geometry_iso_before_idam_4e > 2)
-				geometry_iso_before_idam_4e-=2;
-
-
-
-			if (geometry_iso_before_idam_00 > 2)
-				geometry_iso_before_idam_00-=1;
-
+			floppy_iso_reduceGap();
 			trys--;
 			if (!trys)
 			{
@@ -468,7 +655,8 @@ int floppy_iso_calibrateTrackLength()
 			resultGood=1;
 		}
 	}
-
+#endif
+	assert(0);
 	return 0;
 }
 

@@ -199,7 +199,7 @@ int main()
 					if (ret==0)
 					{
 
-						unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
+						unsigned char *trkBufPtr=(uint8_t*)cylinderBuffer;
 						int totalBytesToTransmit=geometry_sectors * geometry_payloadBytesPerSector * geometry_heads;
 
 						//printf("  sending %d byte\n",totalBytesToTransmit);
@@ -280,17 +280,22 @@ int main()
 					usb_send_data[1]='K';
 					usb_startTransmit(2);
 				}
-				else if (usb_recv_data[6]==4 && usb_recv_len==(12+18)) //write cylinder
+				else if (usb_recv_data[6]==4 && usb_recv_len==13) //write cylinder
 				{
 					int cylinder=usb_recv_data[7];
-					geometry_heads=usb_recv_data[8];
-					geometry_sectors=usb_recv_data[9];
-					int totalBytesToReceive=(((int)usb_recv_data[10]<<8) | usb_recv_data[11]) + 2 ;//2 CRC Bytes
+					geometry_sectors=usb_recv_data[8];
+					cylinderSize=(((int)usb_recv_data[9]<<8) | usb_recv_data[10]);
 
-					memcpy(geometry_iso_sectorPos,(void*)&usb_recv_data[12],MAX_SECTORS_PER_TRACK);
+					//geometry_iso_gap3_postID=usb_recv_data[11]; //Das Übernehmen der Gap3 scheint extrem zu stören.
+
+					geometry_iso_fillerByte=usb_recv_data[12];
+
+					int totalBytesToReceive=cylinderSize + 2 ;//2 CRC Bytes
+
+					//memcpy(geometry_iso_sectorPos,(void*)&usb_recv_data[12],MAX_SECTORS_PER_TRACK);
 
 					//printf("Debug %d %d %d\n",geometry_iso_sectorPos[8],geometry_iso_sectorPos[9],geometry_iso_sectorPos[10]);
-					unsigned char *trkBufPtr=(uint8_t*)trackBuffer;
+					unsigned char *trkBufPtr=(uint8_t*)cylinderBuffer;
 
 					//int totalBytesToReceive=geometry_sectors * geometry_heads * geometry_payloadBytesPerSector + 2; //2 CRC Bytes
 
@@ -298,14 +303,13 @@ int main()
 
 					crc=0xffff;
 					usb_releaseRecvBuffer();
-					assert(totalBytesToReceive < sizeof(trackBuffer));
+					assert(totalBytesToReceive < sizeof(cylinderBuffer));
 
-					assert (trkBufPtr >= &trackBuffer[0]);
-					assert (trkBufPtr < &trackBuffer[CYLINDER_BUFFER_SIZE]);
+					assert (trkBufPtr >= &cylinderBuffer[0]);
+					assert (trkBufPtr < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
 					while (totalBytesToReceive > 0)
 					{
-
 						setupStepTimer(50000);
 						usb_recv_len=0;
 						while (!usb_recv_len)
@@ -329,8 +333,8 @@ int main()
 						usb_releaseRecvBuffer();
 					}
 
-					assert (trkBufPtr >= &trackBuffer[0]);
-					assert (trkBufPtr < &trackBuffer[CYLINDER_BUFFER_SIZE]);
+					assert (trkBufPtr >= &cylinderBuffer[0]);
+					assert (trkBufPtr < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
 					//Die CRC muss nun stimmen, also 0 sein, da sie Teil der Daten war.
 

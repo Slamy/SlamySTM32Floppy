@@ -30,24 +30,42 @@ unsigned short crc=0xFFFF;
 #define MAX_HEADS 2
 #define MAX_SECTORS_PER_TRACK 18
 
-uint32_t geometry_payloadBytesPerSector=512;
+
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
-uint32_t geometry_sectors=0; //wenn 0, dann zählt geometry_sectorsPerCylinder
 unsigned char geometry_sectorsPerCylinder[MAX_CYLINDERS];
-unsigned char geometry_iso_sectorPos[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK];
+unsigned char geometry_iso_gap3length[MAX_CYLINDERS];
+unsigned char geometry_iso_fillerByte[MAX_CYLINDERS];
+unsigned short geometry_actualSectorSize[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK]; //tatsächliche Größe der Daten in Byte
+unsigned char geometry_iso_sectorId[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK]; //Interleaving ist damit auch abgedeckt
+unsigned char geometry_iso_sectorHeaderSize[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK]; //z.B. 2 für 512 Byte Sektoren. nur untere 3 bits werden benutzt
+unsigned char geometry_iso_sectorErased[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK];
+
+
+
 int geometry_iso_sectorInterleave;
 
 //#define CYLINDER_BUFFER_SIZE MAX_HEADS * MAX_SECTORS_PER_TRACK * MAX_SECTOR_SIZE //für HD ausreichend
 #define CYLINDER_BUFFER_SIZE (14000 * 2) //basierend auf Turrican2.ipf
 
 unsigned char image_cylinderBuf[MAX_CYLINDERS][CYLINDER_BUFFER_SIZE];
-unsigned int image_rawCylinderSize[MAX_CYLINDERS];
+unsigned int image_cylinderSize[MAX_CYLINDERS];
 
 
 enum floppyFormat format;
 
 void floppy_iso_buildSectorInterleavingLut();
+void setSectorAnzForEveryCylinder(int geometry_sectors);
+
+static const unsigned int isoSectorSizes[]={
+		128, //0
+		256, //1
+		512, //2
+		1024, //3
+		2048, //4
+		4096, //5
+		8192 //6
+};
 
 void crc_shiftByte(unsigned char b)
 {
@@ -192,7 +210,6 @@ enum floppyFormat
 	FLOPPY_FORMAT_AMIGA_DD,
 
 	/* Special formats */
-	FLOPPY_FORMAT_CPC_DD,
 	FLOPPY_FORMAT_RAW
 };
 
@@ -203,7 +220,6 @@ char *formatStr[]=
 	"Iso DD",
 	"Iso HD",
 	"Amiga DD",
-	"CPC DD",
 	"Raw MFM"
 };
 
@@ -251,47 +267,13 @@ void discoverFormat(int cylinder, int head)
 void writeCylinderFromImage(int cylinder)
 {
 	int i;
-	unsigned char trackBuf[CYLINDER_BUFFER_SIZE];
+	unsigned char cylinderBuf[CYLINDER_BUFFER_SIZE];
 	int bytes_read;
 	int total_bytes_read;
 	unsigned char sendBuf[64];
 	unsigned char recvBuf[64];
-
-	sendBuf[0]='F'; //Magic Number
-	sendBuf[1]='l';
-	sendBuf[2]='o';
-	sendBuf[3]='p';
-	sendBuf[4]='p';
-	sendBuf[5]='y';
-	sendBuf[6]=4; //Write Track
-	sendBuf[7]=cylinder; //Welche Spur
-	sendBuf[8]=geometry_heads;
-
 	int tracksize=0;
 
-	if (format==FLOPPY_FORMAT_RAW)
-	{
-		tracksize=image_rawCylinderSize[cylinder];
-		//printf("Raw Tracksize %d\n",tracksize);
-	}
-	else if (geometry_sectors) //global Sectoranzahl festgelegt ?
-	{
-		sendBuf[9]=geometry_sectors;
-		tracksize=geometry_payloadBytesPerSector * geometry_heads * geometry_sectors;
-	}
-	else
-	{
-		sendBuf[9]=geometry_sectorsPerCylinder[cylinder];
-		tracksize=geometry_payloadBytesPerSector * geometry_heads * (int)geometry_sectorsPerCylinder[cylinder];
-	}
-
-	sendBuf[10]=(tracksize>>8)&0xff;
-	sendBuf[11]=tracksize&0xff;
-
-	//printf("tracksize %d   %d %d\n",tracksize,geometry_sectors,geometry_heads);
-	memcpy(&sendBuf[12],geometry_iso_sectorPos[cylinder],18);
-	
-	sendFrame(sendBuf,12+18);
 
 	/*
 	printf("%d %d %d -> ",geometry_payloadBytesPerSector,geometry_heads,geometry_sectors);
@@ -302,7 +284,51 @@ void writeCylinderFromImage(int cylinder)
 	printf("\n");
 	*/
 
-	memcpy(trackBuf,image_cylinderBuf[cylinder],tracksize);
+	if (format==FLOPPY_FORMAT_ISO_DD || format==FLOPPY_FORMAT_ISO_HD)
+	{
+		for(i=0;i<geometry_sectorsPerCylinder[cylinder];i++)
+		{
+			cylinderBuf[tracksize++]=geometry_iso_sectorId[cylinder][i];
+		}
+
+		for(i=0;i<geometry_sectorsPerCylinder[cylinder];i++)
+		{
+			cylinderBuf[tracksize]=geometry_iso_sectorHeaderSize[cylinder][i];
+			printf("writeCylinderFromImage %d %d\n",i,geometry_iso_sectorErased[cylinder][i]);
+			if (geometry_iso_sectorErased[cylinder][i])
+			{
+				cylinderBuf[tracksize]|=0x80;
+			}
+			tracksize++;
+		}
+
+		for(i=0;i<geometry_sectorsPerCylinder[cylinder];i++)
+		{
+			cylinderBuf[tracksize++]=(geometry_actualSectorSize[cylinder][i]>>8)&0xff;
+			cylinderBuf[tracksize++]=geometry_actualSectorSize[cylinder][i]&0xff;
+		}
+	}
+
+
+	memcpy(&cylinderBuf[tracksize],image_cylinderBuf[cylinder],image_cylinderSize[cylinder]);
+	tracksize+=image_cylinderSize[cylinder];
+	assert(tracksize < sizeof(cylinderBuf));
+
+	sendBuf[0]='F'; //Magic Number
+	sendBuf[1]='l';
+	sendBuf[2]='o';
+	sendBuf[3]='p';
+	sendBuf[4]='p';
+	sendBuf[5]='y';
+	sendBuf[6]=4; //Write Track
+	sendBuf[7]=cylinder; //Welche Spur
+	sendBuf[8]=geometry_sectorsPerCylinder[cylinder];
+	sendBuf[9]=(tracksize>>8)&0xff;
+	sendBuf[10]=tracksize&0xff;
+	sendBuf[11]=geometry_iso_gap3length[cylinder];
+	sendBuf[12]=geometry_iso_fillerByte[cylinder];
+
+	sendFrame(sendBuf,13);
 
 	/*
 	for (i=0;i<geometry_sectors*geometry_heads;i++)
@@ -314,14 +340,14 @@ void writeCylinderFromImage(int cylinder)
 	crc=0xffff;
 	for(i=0;i<tracksize;i++)
 	{
-		crc_shiftByte(trackBuf[i]);
+		crc_shiftByte(cylinderBuf[i]);
 	}
 
-	trackBuf[tracksize++]=crc>>8;
-	trackBuf[tracksize++]=crc&0xff;
+	cylinderBuf[tracksize++]=crc>>8;
+	cylinderBuf[tracksize++]=crc&0xff;
 
 	printf("Cylinder write %d ... sending %d byte\n",cylinder,tracksize);
-	sendMultipleFrames(trackBuf,tracksize);
+	sendMultipleFrames(cylinderBuf,tracksize);
 
 	bytes_read=receiveFrame(recvBuf);
 	if (bytes_read!=4)
@@ -376,7 +402,7 @@ void readCylinderToImage(int cylinder)
 	total_bytes_read=0;
 	
 	unsigned char checksum=0;
-	int tracksize=geometry_payloadBytesPerSector * geometry_heads * geometry_sectors;
+	int tracksize=image_cylinderSize[cylinder];
 	//printf("%d %d %d\n",geometry_payloadBytesPerSector,geometry_heads,geometry_sectors);
 	printf("Cylinder read %d ... expecting %d byte\n",cylinder,tracksize);
 
@@ -421,8 +447,7 @@ void configureController(unsigned char calibrate)
 	sendBuf[7]=format;
 	sendBuf[8]=geometry_cylinders;
 	sendBuf[9]=geometry_heads;
-	sendBuf[10]=geometry_sectors;
-	sendBuf[11]=calibrate;
+	sendBuf[10]=calibrate;
 
 
 	sendFrame(sendBuf,12);
@@ -473,12 +498,14 @@ const unsigned char possibleSectorAnz[]=
 	9,10,11,18
 };
 
-int readImage_Raw(const char *path)
+int readImage_noHeader(const char *path)
 {
 	struct stat info;
 
 	int i;
 	int cyl,head,heads,secs;
+	int geometry_sectors=0;
+	int geometry_payloadBytesPerSector=512;
 
 	assert(!stat(path, &info));
 	int diskSize=info.st_size;
@@ -501,6 +528,7 @@ int readImage_Raw(const char *path)
 			}
 		}
 	}
+	setSectorAnzForEveryCylinder(geometry_sectors);
 
 	if (geometry_cylinders==80 && geometry_heads==2 && geometry_sectors==11)
 	{
@@ -552,6 +580,7 @@ int readImage_amstradCpc(const char *path)
 {
 	unsigned char diskInfoBlock[256];
 	unsigned char trackInfoBlock[256];
+	unsigned char unusedBuffer[8192];
 
 	FILE *f=fopen(path,"r");
 	assert(f);
@@ -572,112 +601,186 @@ int readImage_amstradCpc(const char *path)
 		//Infos and reserved bytes
 		int tracks=diskInfoBlock[0x30];
 		int sides=diskInfoBlock[0x31];
-		//int tracksize=((int)temp[2]) | (((int)temp[3])<<8);
+		//int tracksize=((int)diskInfoBlock[0x32]) | (((int)diskInfoBlock[0x33])<<8);
 		printf("Number of Tracks:%d\n",tracks);
 		printf("Number of Sides:%d\n",sides);
 		//printf("Size of a Track:%d\n",tracksize);
 
 		geometry_cylinders=tracks;
 		geometry_heads=sides;
-		geometry_sectors=0; //Sectoranzahl wird für jeden Cylinder festgelegt.
+		//Sectoranzahl wird für jeden Cylinder festgelegt.
 
 		int i,j;
 		for (i=0;i<tracks*sides;i++)
 		{
-			//printf("Track %d -> Cyl:%d Head:%d Size %d\n",i,i>>1,i&1,diskInfoBlock[0x34+i]);
+			int trackSize=diskInfoBlock[0x34+i];
+			printf("Track %d -> Cyl:%d Head:%d Size %d\n",i,i>>1,i&1,trackSize);
 		}
 
+
+		int dataPos=0;
 		for (i=0;i<tracks*sides;i++)
 		{
-			//Für jeden Track den Track Information Block lesen
-			bytes_read=fread(trackInfoBlock,1,256,f);
-			assert(bytes_read == 256);
-			//printf("X%sX\n",temp);
-			assert(!memcmp("Track-Info\r\n" ,trackInfoBlock,12));
+			int trackSize=diskInfoBlock[0x34+i];
 
-			unsigned int track=trackInfoBlock[0x10];
-			unsigned int side=trackInfoBlock[0x11];
-			unsigned int sectorSize=trackInfoBlock[0x14];
-			unsigned int sectors=trackInfoBlock[0x15];
-
-			assert(sectorSize==2);
-			//printf("Track %d %d %d %d\n",track,side,sectorSize,sectors);
-
-			if (side==0)
-				geometry_sectorsPerCylinder[track]=sectors;
-			else
+			if (trackSize)
 			{
-				if (geometry_sectorsPerCylinder[track]!=sectors)
-				{
-					printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand ihrer Anzahl.\nDas geht gerade nicht!\n");
-					exit(1);
-				}
-			}
+				//Für jeden Track den Track Information Block lesen
+				bytes_read=fread(trackInfoBlock,1,256,f);
+				assert(bytes_read == 256);
+				//printf("X%sX\n",temp);
+				assert(!memcmp("Track-Info\r\n" ,trackInfoBlock,12));
 
-			//Jeder Track Information Block hat seine Sector Information List
-			for (j=0;j<sectors;j++)
-			{
-				unsigned int sectorheader_cylinder=trackInfoBlock[0x18+j*8+0];
-				unsigned int sectorheader_side=trackInfoBlock[0x18+j*8+1];
-				unsigned int sectorheader_sector=trackInfoBlock[0x18+j*8+2];
-				unsigned int sectorheader_sectorsize=trackInfoBlock[0x18+j*8+3];
-				unsigned int actualLength=((int)trackInfoBlock[0x18+j*8+6]) | (((int)trackInfoBlock[0x18+j*8+7])<<8);
+				unsigned int track=trackInfoBlock[0x10];
+				unsigned int side=trackInfoBlock[0x11];
+				unsigned int sectorSize=trackInfoBlock[0x14];
+				unsigned int sectors=trackInfoBlock[0x15];
+				unsigned int gap3len=trackInfoBlock[0x16];
+				unsigned int fillerByte=trackInfoBlock[0x17];
 
+				if (side==0)
+					dataPos=0;
 
-				printf("Sector %d %d %x %d %d\n",
-						sectorheader_cylinder,
-						sectorheader_side,
-						sectorheader_sector,
-						sectorheader_sectorsize,
-						actualLength);
-
-				assert(sectorheader_sectorsize==2);
-
-				if ((sectorheader_sector & 0xf0) != 0xC0)
-				{
-					printf("Bei dieser Amstrad CPC Disk ist das Upper Nibble des Sektors nicht 0xC. Das geht aktuell nicht!\n");
-					exit(1);
-				}
+				printf("Track %d %d %d %d\n",track,side,sectorSize,sectors);
 
 				if (side==0)
 				{
-					geometry_iso_sectorPos[track][j]=(sectorheader_sector&0xf);
-					printf("geometry_iso_sectorPos [%d][%d] = %d\n",track,j,(sectorheader_sector&0xf));
+					geometry_sectorsPerCylinder[track]=sectors;
+					geometry_iso_gap3length[track]=gap3len;
+					geometry_iso_fillerByte[track]=fillerByte;
 				}
 				else
 				{
-					if (geometry_iso_sectorPos[track][j]!=(sectorheader_sector&0xf))
+					if (geometry_sectorsPerCylinder[track]!=sectors)
 					{
-						printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand des Sector Interleavings.\nDas geht gerade nicht!\n");
+						printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand ihrer Anzahl.\nDas geht gerade nicht!\n");
 						exit(1);
 					}
 				}
-			}
 
-			//Nun die eigentlichen Daten. Die Sektoren liegen in der gleichen Reihenfolge, wie die Sektoren in der Sector Information List
-			/* Beispiel anhand oberer Ausgabe:
-			** geometry_iso_sectorPos [0][0] = 1
-			** geometry_iso_sectorPos [0][1] = 6
-			** geometry_iso_sectorPos [0][2] = 2
-			** geometry_iso_sectorPos [0][3] = 7
-			** geometry_iso_sectorPos [0][4] = 3
-			** geometry_iso_sectorPos [0][5] = 8
-			** geometry_iso_sectorPos [0][6] = 4
-			** geometry_iso_sectorPos [0][7] = 9
-			** geometry_iso_sectorPos [0][8] = 5
-			*/
+				//Jeder Track Information Block hat seine Sector Information List
+				for (j=0;j<sectors;j++)
+				{
+					unsigned int sectorheader_cylinder=trackInfoBlock[0x18+j*8+0];
+					unsigned int sectorheader_side=trackInfoBlock[0x18+j*8+1];
+					unsigned int sectorheader_sector=trackInfoBlock[0x18+j*8+2];
+					unsigned int sectorheader_sectorsize=trackInfoBlock[0x18+j*8+3];
+					unsigned int sectorHeader_fdcStat1=trackInfoBlock[0x18+j*8+4];
+					unsigned int sectorHeader_fdcStat2=trackInfoBlock[0x18+j*8+5];
+					unsigned int actualLength=((int)trackInfoBlock[0x18+j*8+6]) | (((int)trackInfoBlock[0x18+j*8+7])<<8);
 
-			for (j=0;j<sectors;j++)
-			{
-				int sectorPos=geometry_iso_sectorPos[track][j]-1;
-				bytes_read=fread(&image_cylinderBuf[track][geometry_payloadBytesPerSector*(sectorPos+sectors*side)],1,512,f);
-				assert(bytes_read==512);
-				//printf("1. Byte %x\n",image_cylinderBuf[track][geometry_payloadBytesPerSector*(sectorPos+sectors*side)]);
+					printf("Sector Cyl:%d  Side:%d SectorId:%x SectorSize:%d Stat1:%x Stat2:%x ActLen:%d\n",
+							sectorheader_cylinder,
+							sectorheader_side,
+							sectorheader_sector,
+							sectorheader_sectorsize,
+							sectorHeader_fdcStat1,
+							sectorHeader_fdcStat2,
+							actualLength);
+
+
+					//assert(sectorheader_sectorsize==2);
+					assert(track == sectorheader_cylinder);
+
+					if (side==0)
+					{
+						geometry_iso_sectorId[track][j]=sectorheader_sector;
+						geometry_iso_sectorHeaderSize[track][j]=sectorheader_sectorsize;
+						geometry_iso_sectorErased[track][j]=(sectorHeader_fdcStat2 & 0x40);
+						geometry_actualSectorSize[track][j]=actualLength;
+
+						//printf("geometry_iso_sectorPos [%d][%d] = %d\n",track,j,(sectorheader_sector&0xf));
+					}
+					else
+					{
+						if (geometry_iso_sectorId[track][j]!=sectorheader_sector)
+						{
+							printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand der Sektor IDs.\nDas geht gerade nicht!\n");
+							exit(1);
+						}
+
+						if (geometry_iso_sectorHeaderSize[track][j]!=sectorheader_sectorsize)
+						{
+							printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand der Sektor Größe.\nDas geht gerade nicht!\n");
+							exit(1);
+						}
+
+						if (geometry_actualSectorSize[track][j]!=actualLength)
+						{
+							printf("Bei dieser Amstrad CPC Disk unterscheiden sich die Tracks eines Cylinders anhand der Sektor Größe.\nDas geht gerade nicht!\n");
+							exit(1);
+						}
+					}
+				}
+
+				//Nun die eigentlichen Daten. Die Sektoren liegen in der gleichen Reihenfolge, wie die Sektoren in der Sector Information List
+				/* Beispiel anhand oberer Ausgabe:
+				** geometry_iso_sectorPos [0][0] = 1
+				** geometry_iso_sectorPos [0][1] = 6
+				** geometry_iso_sectorPos [0][2] = 2
+				** geometry_iso_sectorPos [0][3] = 7
+				** geometry_iso_sectorPos [0][4] = 3
+				** geometry_iso_sectorPos [0][5] = 8
+				** geometry_iso_sectorPos [0][6] = 4
+				** geometry_iso_sectorPos [0][7] = 9
+				** geometry_iso_sectorPos [0][8] = 5
+				*/
+
+
+				for (j=0;j<sectors;j++)
+				{
+					/*
+					printf("Read %d bytes...\n",isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]]);
+
+					bytes_read=fread(&image_cylinderBuf[track][dataPos],1,isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]],f);
+					assert(bytes_read==isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]]);
+					*/
+
+					printf("Read %d bytes...\n",geometry_actualSectorSize[track][j]);
+					bytes_read=fread(&image_cylinderBuf[track][dataPos],1,geometry_actualSectorSize[track][j],f);
+					assert(bytes_read==geometry_actualSectorSize[track][j]);
+
+					printf("Sector Cyl:%d SectorId:%x Data %02x ... %02x\n",
+							track,
+							j,
+							image_cylinderBuf[track][dataPos],
+							image_cylinderBuf[track][dataPos+bytes_read-1]);
+
+					//printf("1. Byte %x\n",image_cylinderBuf[track][geometry_payloadBytesPerSector*(sectorPos+sectors*side)]);
+
+					dataPos+=geometry_actualSectorSize[track][j];
+					image_cylinderSize[track]+=geometry_actualSectorSize[track][j];
+
+					int moduloPos=geometry_actualSectorSize[track][j]%256;
+
+					if (moduloPos)
+					{
+
+						int stillToRead=256-moduloPos;
+						printf("Hab %d Bytes gelesen. Ich lese also noch %d\n",bytes_read,stillToRead);
+						bytes_read=fread(unusedBuffer,1,stillToRead,f);
+						assert(bytes_read==stillToRead);
+					}
+					/*
+					if (isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]] != geometry_actualSectorSize[track][j])
+					{
+						printf("Der Sektor hat %d Nutzbytes. Es müssen aber %d Byte aus dem Image gelesen werden!\n",
+								geometry_actualSectorSize[track][j],isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]]);
+
+						int stillToRead=isoSectorSizes[geometry_iso_sectorHeaderSize[track][j]]-geometry_actualSectorSize[track][j];
+						bytes_read=fread(unusedBuffer,1,stillToRead,f);
+						assert(bytes_read==stillToRead);
+
+					}
+					*/
+				}
+
+				printf("image_cylinderSize[track %d] %d\n",track,dataPos);
 			}
 		}
 
 		fclose(f);
-		format=FLOPPY_FORMAT_CPC_DD;
+		format=FLOPPY_FORMAT_ISO_DD;
 	}
 	else
 		assert(0);
@@ -825,7 +928,6 @@ int readImage_ipf(const char *path)
 								memcpy(&image_cylinderBuf[cylinder][cylBufIndex+3],&trackInf.trackdata[0][0],trackInf.tracksize[0]);
 								cylBufIndex+= 3 + trackInf.tracksize[0];
 							}
-
 						}
 						else
 						{
@@ -893,8 +995,8 @@ int readImage_ipf(const char *path)
 				image_cylinderBuf[cylinder][cylBufIndex+2]=0;
 				cylBufIndex+= 3;
 
-				image_rawCylinderSize[cylinder]=cylBufIndex;
-				//printf("image_rawCylinderSize[cylinder] %d\n",image_rawCylinderSize[cylinder]);
+				image_cylinderSize[cylinder]=cylBufIndex;
+				//printf("image_rawCylinderSize[cylinder] %d\n",image_cylinderSize[cylinder]);
 			}
 
 			CAPSUnlockImage(id);
@@ -926,12 +1028,12 @@ int analyseImage(const char *path)
 		else if (!strcmp(fileTypeStr,".st"))
 		{
 			printf("Atari ST - Binary Image\n");
-			return readImage_Raw(path);
+			return readImage_noHeader(path);
 		}
 		else if (!strcmp(fileTypeStr,".adf"))
 		{
 			printf("Amiga - Binary Image\n");
-			return readImage_Raw(path);
+			return readImage_noHeader(path);
 		}
 		else if (!strcmp(fileTypeStr,".ipf"))
 		{
@@ -945,19 +1047,25 @@ int analyseImage(const char *path)
 	return 1;
 }
 
-void floppy_iso_standardSectorPositions()
+void floppy_iso_standardSectorIds()
 {
 	int i;
 	for (i=0;i<MAX_SECTORS_PER_TRACK;i++)
-		geometry_iso_sectorPos[0][i]=i+1;
+	{
+		geometry_iso_sectorId[0][i]=i+1;
+		geometry_iso_sectorHeaderSize[0][i]=2;
+		geometry_actualSectorSize[0][i]=512;
+	}
 
 	for (i=1;i<MAX_CYLINDERS;i++)
 	{
-		memcpy(geometry_iso_sectorPos[i],geometry_iso_sectorPos[0],MAX_SECTORS_PER_TRACK);
+		memcpy(geometry_iso_sectorId[i],geometry_iso_sectorId[0],MAX_SECTORS_PER_TRACK);
+		memcpy(geometry_iso_sectorHeaderSize[i],geometry_iso_sectorHeaderSize[0],MAX_SECTORS_PER_TRACK);
+		memcpy(geometry_actualSectorSize[i],geometry_actualSectorSize[0],MAX_SECTORS_PER_TRACK * sizeof(unsigned short));
 	}
 }
 
-void floppy_iso_buildSectorInterleavingLut()
+void floppy_iso_buildSectorInterleavingLut(int geometry_sectors)
 {
 	int i;
 	int sector=1;
@@ -966,18 +1074,20 @@ void floppy_iso_buildSectorInterleavingLut()
 	printf("floppy_iso_buildSectorInterleavingLut %d %d\n",geometry_cylinders,geometry_sectors);
 
 	for (i=0;i<geometry_sectors;i++)
-		geometry_iso_sectorPos[0][i]=0;
+	{
+		geometry_iso_sectorId[0][i]=0;
+	}
 
 	while (sector <= geometry_sectors)
 	{
-		geometry_iso_sectorPos[0][placePos]=sector;
+		geometry_iso_sectorId[0][placePos]=sector;
 		placePos+=(geometry_iso_sectorInterleave+1);
 		if (placePos >= geometry_sectors)
 		{
 			placePos-=geometry_sectors;
 		}
 
-		while (geometry_iso_sectorPos[0][placePos])
+		while (geometry_iso_sectorId[0][placePos])
 			placePos++;
 
 		sector++;
@@ -985,10 +1095,18 @@ void floppy_iso_buildSectorInterleavingLut()
 
 	for (i=1;i<geometry_cylinders;i++)
 	{
-		memcpy(geometry_iso_sectorPos[i],geometry_iso_sectorPos[0],MAX_SECTORS_PER_TRACK);
+		memcpy(geometry_iso_sectorId[i],geometry_iso_sectorId[0],MAX_SECTORS_PER_TRACK);
 	}
 }
 
+void setSectorAnzForEveryCylinder(int geometry_sectors)
+{
+	int i;
+	for (i=1;i<geometry_cylinders;i++)
+	{
+		geometry_sectorsPerCylinder[i]=geometry_sectors;
+	}
+}
 
 void parseFormatString(char *str)
 {
@@ -997,21 +1115,21 @@ void parseFormatString(char *str)
 	{
 		geometry_cylinders=80;
 		geometry_heads=2;
-		geometry_sectors=11;
+		setSectorAnzForEveryCylinder(11);
 		format=FLOPPY_FORMAT_AMIGA_DD;
 	}
 	else if (!strncmp(str,"isodd",5))
 	{
 		geometry_cylinders=80;
 		geometry_heads=2;
-		geometry_sectors=9;
+		setSectorAnzForEveryCylinder(9);
 		format=FLOPPY_FORMAT_ISO_DD;
 	}
 	else if (!strncmp(str,"isohd",5))
 	{
 		geometry_cylinders=80;
 		geometry_heads=2;
-		geometry_sectors=18;
+		setSectorAnzForEveryCylinder(18);
 		format=FLOPPY_FORMAT_ISO_HD;
 	}
 	else
@@ -1037,7 +1155,7 @@ void parseFormatString(char *str)
 		else if (*str=='s')
 		{
 			str++;
-			geometry_sectors=atoi(str);
+			setSectorAnzForEveryCylinder(atoi(str));
 		}
 	}
 }
@@ -1046,10 +1164,10 @@ void parseFormatString(char *str)
 int floppy_iso_getSectorNum(int cyl,int sectorPos)
 {
 	//return ((sectorPos-1)*(geometry_iso_sectorInterleave+1) % geometry_sectors) +1;
-	return geometry_iso_sectorPos[cyl][sectorPos-1];
+	return geometry_iso_sectorId[cyl][sectorPos-1];
 }
 
-void floppy_iso_evaluateSectorInterleaving(int cyl)
+void floppy_iso_evaluateSectorInterleaving(int cyl, int geometry_sectors)
 {
 	int sectorpos=0;
 	int expectedSector=1;
@@ -1073,9 +1191,9 @@ void floppy_iso_evaluateSectorInterleaving(int cyl)
 	{
 		for (sectorpos=1; sectorpos <= geometry_sectors; sectorpos++)
 		{
-			if (expectedSector==geometry_iso_sectorPos[cyl][sectorpos])
+			if (expectedSector==geometry_iso_sectorId[cyl][sectorpos])
 			{
-				printf("%2d ",geometry_iso_sectorPos[cyl][sectorpos]);
+				printf("%2d ",geometry_iso_sectorId[cyl][sectorpos]);
 				expectedSector++;
 			}
 			else
@@ -1123,9 +1241,9 @@ int main (int argc, char **argv)
 	}
 	else if (!strcmp(argv[1],"interleave") && argc == 4)
 	{
-		geometry_sectors=atoi(argv[3]);
+		int geometry_sectors=atoi(argv[3]);
 		floppy_iso_buildSectorInterleavingLut(atoi(argv[2]));
-		floppy_iso_evaluateSectorInterleaving(0);
+		floppy_iso_evaluateSectorInterleaving(0,geometry_sectors);
 
 		return 0;
 	}
@@ -1164,19 +1282,17 @@ int main (int argc, char **argv)
 		*/
 
 		configureController(0);
-		int diskSize=geometry_cylinders*geometry_heads*geometry_sectors*geometry_payloadBytesPerSector;
 
 		f=fopen(filename,"wb");
 		assert(f);
 
 		readDisk(0,geometry_cylinders-1);
 
-		int cylinderSize=geometry_heads * geometry_sectors * geometry_payloadBytesPerSector;
 		int cyl;
 		for (cyl=0; cyl < geometry_cylinders;cyl++)
 		{
-			int bytes_written = fwrite(image_cylinderBuf[cyl],1,cylinderSize,f);
-			assert(cylinderSize == bytes_written);
+			int bytes_written = fwrite(image_cylinderBuf[cyl],1,image_cylinderSize[cyl],f);
+			assert(image_cylinderSize[cyl] == bytes_written);
 		}
 
 		fclose(f);

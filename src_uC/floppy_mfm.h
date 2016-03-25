@@ -44,6 +44,8 @@ extern unsigned int mfm_errorHappened;
 extern uint32_t mfm_lastBit;
 
 
+extern int indexOverflowCount;
+
 void TIM2_IRQHandler(void);
 unsigned short mfm_iso_encode(unsigned char data);
 void mfm_read_init();

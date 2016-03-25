@@ -35,7 +35,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 	//Die Datenchecksumme aller Sektoren MUSS vorher feststehen.
 
 	assert ((head * geometry_sectors * geometry_payloadBytesPerSector) < CYLINDER_BUFFER_SIZE);
-	trackBuf=&trackBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
+	trackBuf=&cylinderBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
 
 	for (sector=0; sector < geometry_sectors; sector++)
 	{
@@ -51,7 +51,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 	}
 
 	assert ((head * geometry_sectors * geometry_payloadBytesPerSector) < CYLINDER_BUFFER_SIZE);
-	trackBuf=&trackBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
+	trackBuf=&cylinderBuffer[head*geometry_sectors*geometry_payloadBytesPerSector/4];
 
 	if (floppy_waitForIndex())
 		return 1;
@@ -355,7 +355,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 			{
 				//Die Daten Checksumme wurde gesichert und wird gleich benötigt.
 
-				sectorData=&trackBuffer[(header_head * geometry_sectors + header_sec) * geometry_payloadBytesPerSector/4];
+				sectorData=&cylinderBuffer[(header_head * geometry_sectors + header_sec) * geometry_payloadBytesPerSector/4];
 				//printf("header_sec:%d %d %d\n",header_sec,sectorData-trackBuffer,sizeof(trackBuffer));
 				trackReadState++;
 				i=0;

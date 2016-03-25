@@ -16,23 +16,32 @@ uint32_t geometry_payloadBytesPerSector=512;
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
 uint32_t geometry_sectors=0;
+
+
 enum floppyFormat geometry_format=FLOPPY_FORMAT_UNKNOWN;
-unsigned char geometry_iso_sectorPos[MAX_SECTORS_PER_TRACK];
+unsigned short geometry_actualSectorSize[MAX_SECTORS_PER_TRACK]; //tatsächliche Größe der Daten in Byte
 
-uint32_t geometry_iso_trackstart_4e=50;
-uint32_t geometry_iso_trackstart_00=12;
+unsigned char geometry_iso_sectorId[MAX_SECTORS_PER_TRACK]; //Interleaving ist damit auch abgedeckt
+unsigned char geometry_iso_sectorHeaderSize[MAX_SECTORS_PER_TRACK]; //z.B. 2 für 512 Byte Sektoren
+unsigned char geometry_iso_sectorErased[MAX_SECTORS_PER_TRACK];
 
-uint32_t geometry_iso_before_idam_4e=50;
-uint32_t geometry_iso_before_idam_00=12;
+unsigned char geometry_iso_gap1_postIndex;	//32x 4E
 
-uint32_t geometry_iso_before_data_4e=22;
-uint32_t geometry_iso_before_data_00=12;
+unsigned char geometry_iso_gap2_preID_00;	//12x 00
+
+unsigned char geometry_iso_gap3_postID;		//22x 4E
+unsigned char geometry_iso_gap3_preData_00;	//12x 00
+
+unsigned char geometry_iso_gap4_postData;	//24x 4E
+
+unsigned char geometry_iso_gap5_preIndex;	//16x 4E
+
+unsigned char geometry_iso_fillerByte;
+
 
 
 void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors)
 {
-	int i;
-
 	geometry_format=fmt;
 
 	switch (fmt)
@@ -87,19 +96,14 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 	if (sectors)
 		geometry_sectors=sectors;
 
-	geometry_iso_trackstart_4e=50;
-	geometry_iso_trackstart_00=12;
+	geometry_iso_gap1_postIndex=32;	//32x 4E
+	geometry_iso_gap2_preID_00=12;	//12x 00
+	geometry_iso_gap3_postID=22;		//22x 4E
+	geometry_iso_gap3_preData_00=12;	//12x 00
+	geometry_iso_gap4_postData=24;	//24x 4E
+	geometry_iso_gap5_preIndex=16;	//16x 4E
 
-	geometry_iso_before_idam_4e=50;
-	geometry_iso_before_idam_00=12;
-
-	geometry_iso_before_data_4e=22;
-	geometry_iso_before_data_00=12;
-
-	for (i=0;i<MAX_SECTORS_PER_TRACK;i++)
-	{
-		geometry_iso_sectorPos[i]=i+1;
-	}
+	geometry_iso_fillerByte=0x4E;
 
 	printf("Configured geometry: %d %d %d\n",
 			(int)geometry_cylinders,
