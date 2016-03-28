@@ -49,8 +49,12 @@ extern unsigned char geometry_iso_gap4_postData;	//24x 4E
 
 extern unsigned char geometry_iso_gap5_preIndex;	//16x 4E
 
+extern uint32_t configuration_flags;
+#define CONFIGFLAG_ISO_NO_ROOM_REDUCE_GAP 1
+#define CONFIGFLAG_ISO_NO_ROOM_REDUCE_BITRATE 2
 
-void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors);
+
+void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads);
 
 #endif
 

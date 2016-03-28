@@ -17,6 +17,7 @@ uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
 uint32_t geometry_sectors=0;
 
+uint32_t configuration_flags=0;
 
 enum floppyFormat geometry_format=FLOPPY_FORMAT_UNKNOWN;
 unsigned short geometry_actualSectorSize[MAX_SECTORS_PER_TRACK]; //tatsächliche Größe der Daten in Byte
@@ -40,7 +41,7 @@ unsigned char geometry_iso_fillerByte;
 
 
 
-void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int sectors)
+void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads)
 {
 	geometry_format=fmt;
 
@@ -92,9 +93,6 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, int
 
 	if (heads)
 		geometry_heads=heads;
-
-	if (sectors)
-		geometry_sectors=sectors;
 
 	geometry_iso_gap1_postIndex=32;	//32x 4E
 	geometry_iso_gap2_preID_00=12;	//12x 00

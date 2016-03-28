@@ -63,7 +63,7 @@ unsigned char *floppy_iso_getBufPtr(unsigned char sectorId, unsigned int head)
 	return NULL;
 }
 
-int floppy_iso_writeTrack(int cylinder, int head, int simulate)
+int floppy_iso_writeTrack(int cylinder, int head)
 {
 	uint8_t *sectorData;
 	static int iso_cellLengthDecrement=0;
@@ -78,7 +78,6 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 		printf("%d ",floppy_iso_getSectorNum(sector));
 	printf("\n");
 	*/
-
 
 	int dataPos=geometry_sectors*4; //Überspringe 4 Byte pro Sektor wegen den "ISO Custom Settings"
 	if (head)
@@ -106,10 +105,10 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 	if (floppy_waitForIndex())
 		return 1;
 
-	mfm_configureWrite(MFM_ENCODE,8);
-	mfm_configureWriteCellLength(mfm_decodeCellLength);
-
-	mfm_blockedWrite(0x00);
+	//FIXME Welcher Zweck?
+	//mfm_configureWrite(MFM_ENCODE,8);
+	//mfm_configureWriteCellLength(mfm_decodeCellLength);
+	//mfm_blockedWrite(0x00);
 
 	//iso_cellLengthDecrement=6;
 
@@ -119,22 +118,25 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 
 	//mfm_configureWriteCellLength(MFM_BITTIME_DD/2);
 
+	floppy_iso_setGaps();
+
 	do
 	{
 		floppy_setWriteGate(1);
 
+		//die Spur bis zum Index mit 0en vollschreiben. Vermeidet Müll, den wir nicht haben wollen
 		mfm_configureWrite(MFM_ENCODE,8);
 		mfm_configureWriteCellLength(mfm_decodeCellLength - iso_cellLengthDecrement);
+		mfm_blockedWrite(0x00);
 
-		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
 		if (floppy_waitForIndex())
 			return 1;
 
 		//printf("Index!\n");
 
-
 		//if (geometry_iso_trackstart_00)
 
+#if 0
 		for (i=0;i<geometry_iso_gap1_postIndex;i++)
 			mfm_blockedWrite(geometry_iso_fillerByte);
 
@@ -151,6 +153,7 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 
 			mfm_blockedWrite(0xFC);
 		}
+#endif
 
 		for (i=0;i<geometry_iso_gap1_postIndex;i++)
 			mfm_blockedWrite(geometry_iso_fillerByte);
@@ -254,26 +257,34 @@ int floppy_iso_writeTrack(int cylinder, int head, int simulate)
 				mfm_blockedWrite(geometry_iso_fillerByte);
 		}
 
-		if (geometry_iso_gap5_preIndex < 2)
+		if (geometry_iso_gap5_preIndex)
 		{
-			mfm_blockedWrite(geometry_iso_fillerByte);
-			mfm_blockedWrite(geometry_iso_fillerByte);
+			for (i=0;i<geometry_iso_gap5_preIndex;i++)
+				mfm_blockedWrite(geometry_iso_fillerByte);
 		}
-
-		for (i=0;i<geometry_iso_gap5_preIndex;i++)
+		else
 			mfm_blockedWrite(geometry_iso_fillerByte);
 
 		floppy_setWriteGate(0);
 
+		//zum auslaufen
 		for (i=0;i<5;i++)
 			mfm_blockedWrite(geometry_iso_fillerByte);
 
 
 		if (indexOverflowCount)
 		{
-			printf("floppy_iso_writeTrack index overflow %d %d\n",indexOverflowCount,iso_cellLengthDecrement);
-			//if (floppy_iso_reduceGap())
-			iso_cellLengthDecrement++;
+			if (configuration_flags & CONFIGFLAG_ISO_NO_ROOM_REDUCE_BITRATE)
+			{
+				printf("floppy_iso_writeTrack index overflow %d %d\n",indexOverflowCount,iso_cellLengthDecrement);
+				iso_cellLengthDecrement++;
+			}
+			else
+			{
+				printf("floppy_iso_writeTrack index overflow fail %d\n",indexOverflowCount);
+				return 2; //Es war kein Platz, ich darf aber auch nichts tun, um die Situation zu verbessern!
+			}
+
 		}
 	}
 	while (indexOverflowCount);
@@ -404,7 +415,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		}
 		else
 		{
-			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_secId);
+			//printf("SecHead: %d %d %x\n",header_cyl,header_head,header_secId);
 
 			if (!trackSectorDetected[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)])
 			{
@@ -541,122 +552,155 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 	return 0;
 }
 
+/*
+unsigned char geometry_iso_gap1_postIndex;	//32x 4E
 
+unsigned char geometry_iso_gap2_preID_00;	//12x 00
+
+unsigned char geometry_iso_gap3_postID;		//22x 4E
+unsigned char geometry_iso_gap3_preData_00;	//12x 00
+
+unsigned char geometry_iso_gap4_postData;	//24x 4E
+
+unsigned char geometry_iso_gap5_preIndex;	//16x 4E
+*/
+
+#if 0
+unsigned char gapConfigurations[]=
+{
+	//Laut "Atari FD Software" die minimale Gap Anzahl
+	32, //Gap 1 Post Index (4E)
+	8, //Gap 2 Pre ID (00)
+	22, //Gap 3a Post ID (4E)
+	12, //Gap 3b Pre Data (00)
+	24, //Gap 4 Post Data (4E)
+	16, //Gap 5 Pre Index (4E)
+
+	//Laut eine gute Konfig für 11 Sektoren
+	10, //Gap 1 Post Index (4E)
+	3, //Gap 2 Pre ID (00)
+	22, //Gap 3a Post ID (4E)
+	12, //Gap 3b Pre Data (00)
+	2, //Gap 4 Post Data (4E)
+	0, //Gap 5 Pre Index (4E)
+
+	0xff
+};
+
+int gapConfigurationIndex=0;
 
 int floppy_iso_reduceGap()
 {
-	if (geometry_iso_gap1_postIndex)
-		geometry_iso_gap1_postIndex--;
+	if (gapConfigurations[gapConfigurationIndex] == 0xff)
+		return 1;
 
-	if (geometry_iso_gap4_postData)
-		geometry_iso_gap4_postData--;
+	geometry_iso_gap1_postIndex=gapConfigurations[gapConfigurationIndex++];
+	geometry_iso_gap2_preID_00=gapConfigurations[gapConfigurationIndex++];
+	geometry_iso_gap3_postID=gapConfigurations[gapConfigurationIndex++];
+	geometry_iso_gap3_preData_00=gapConfigurations[gapConfigurationIndex++];
+	geometry_iso_gap4_postData=gapConfigurations[gapConfigurationIndex++];
+	geometry_iso_gap5_preIndex=gapConfigurations[gapConfigurationIndex++];
 
-	if (geometry_iso_gap5_preIndex)
-		geometry_iso_gap5_preIndex--;
-
-	printf("floppy_iso_reduceGap %d %d %d\n",
+	printf("floppy_iso_reduceGap %d %d %d %d %d %d\n",
 			geometry_iso_gap1_postIndex,
+			geometry_iso_gap2_preID_00,
+			geometry_iso_gap3_postID,
+			geometry_iso_gap3_preData_00,
 			geometry_iso_gap4_postData,
 			geometry_iso_gap5_preIndex);
 
-	return (!geometry_iso_gap1_postIndex &&
-			!geometry_iso_gap4_postData &&
-			!geometry_iso_gap5_preIndex);
-
-#if 0
-	printf("Iso Track was too long: %d %d   %d %d   %d %d\n",
-			(int)geometry_iso_trackstart_4e,
-			(int)geometry_iso_trackstart_00,
-			(int)geometry_iso_before_idam_4e,
-			(int)geometry_iso_before_idam_00,
-			(int)geometry_iso_before_data_4e,
-			(int)geometry_iso_before_data_00);
-
-	if (geometry_iso_trackstart_4e > 3)
-		geometry_iso_trackstart_4e-=3;
-
-	if (geometry_iso_trackstart_4e > 3)
-		geometry_iso_trackstart_4e-=3;
-
-	if (geometry_iso_trackstart_00 > 0)
-		geometry_iso_trackstart_00-=1;
-
-	if (geometry_iso_before_idam_4e > 2)
-		geometry_iso_before_idam_4e-=2;
-
-	if (geometry_iso_before_idam_4e > 2)
-		geometry_iso_before_idam_4e-=2;
-
-	if (geometry_iso_before_idam_00 > 2)
-		geometry_iso_before_idam_00-=1;
-
-	/*
-	if (	geometry_iso_trackstart_4e==2 &&
-			geometry_iso_trackstart_00==0 &&
-			geometry_iso_before_idam_4e==2 &&
-			geometry_iso_before_idam_00==2)
-	{
-		if (geometry_iso_before_data_4e > 1)
-			geometry_iso_before_data_4e--;
-
-		if (geometry_iso_before_data_00 > 1)
-			geometry_iso_before_data_00--;
-	}
-	*/
-#endif
-}
-
-
-int floppy_iso_calibrateTrackLength()
-{
-#if 0
-	unsigned int resultGood=0;
-	int trys=30;
-
-	int i;
-
-	printf("floppy_iso_calibrateTrackLength\n");
-	while (!resultGood)
-	{
-		if (floppy_iso_writeTrack(0,0,1))
-			return 1;
-
-		//now lets be sure because of write gate latency and add some bytes
-		for (i=0;i<10;i++)
-			mfm_blockedWrite(0x4E);
-
-		if (indexHappened)
-		{
-
-
-			floppy_iso_reduceGap();
-			trys--;
-			if (!trys)
-			{
-				printf("Give up...\n");
-				resultGood=1;
-			}
-			else
-			{
-				printf("%d\n",trys);
-			}
-
-		}
-		else
-		{
-			printf("Iso Track parameters are fine: %d %d   %d %d   %d %d\n",
-					(int)geometry_iso_trackstart_4e,
-					(int)geometry_iso_trackstart_00,
-					(int)geometry_iso_before_idam_4e,
-					(int)geometry_iso_before_idam_00,
-					(int)geometry_iso_before_data_4e,
-					(int)geometry_iso_before_data_00);
-
-			resultGood=1;
-		}
-	}
-#endif
-	assert(0);
 	return 0;
+
+}
+#endif
+
+void floppy_iso_setGaps()
+{
+	switch (geometry_sectors)
+	{
+	case 1: //für einen großen Sektor. Speziell zugeschnitten auf Turrican II für den CPC
+
+
+#if 0
+		//Läuft nicht mit Turrican 2 für den CPC
+		geometry_iso_gap1_postIndex=10;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=2;
+		geometry_iso_gap5_preIndex=0;
+#endif
+
+#if 0
+		//funktioniert für Turrican 2 für den CPC
+		geometry_iso_gap1_postIndex=60;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=40;
+		geometry_iso_gap5_preIndex=40;
+#endif
+
+#if 0
+		//funktioniert für Turrican 2 für den CPC
+		geometry_iso_gap1_postIndex=60;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=10;
+		geometry_iso_gap5_preIndex=0;
+#endif
+
+#if 0
+		//funktioniert für Turrican 2 für den CPC
+		geometry_iso_gap1_postIndex=40;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=2;
+		geometry_iso_gap5_preIndex=0;
+#endif
+
+#if 1
+		//funktioniert für Turrican 2 für den CPC
+		geometry_iso_gap1_postIndex=20;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=2;
+		geometry_iso_gap5_preIndex=0;
+#endif
+
+		break;
+
+	case 9: //Standard
+		geometry_iso_gap1_postIndex=60;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=40;
+		geometry_iso_gap5_preIndex=40;
+		break;
+
+	case 10:
+		geometry_iso_gap1_postIndex=60;
+		geometry_iso_gap2_preID_00=12;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=40;
+		geometry_iso_gap5_preIndex=40;
+		break;
+
+	case 11: //z.B. Turrican 1 für Atari ST
+		geometry_iso_gap1_postIndex=10;
+		geometry_iso_gap2_preID_00=3;
+		geometry_iso_gap3_postID=22;
+		geometry_iso_gap3_preData_00=12;
+		geometry_iso_gap4_postData=2;
+		geometry_iso_gap5_preIndex=0;
+		break;
+	default:
+		assert(0);
+	}
 }
 

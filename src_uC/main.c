@@ -179,6 +179,7 @@ int main()
 			{
 				//printf("Command: %d %d\n",usb_recv_data[6],usb_recv_data[7]);
 
+#if 0 //Lesen erstmal deaktiviert
 				if (usb_recv_data[6]==1 && usb_recv_len==8) //read cylinder
 				{
 					usb_send_data=usb_blockedGetTxBuf();
@@ -243,7 +244,8 @@ int main()
 						usb_startTransmit(4);
 					}
 				}
-				else if (usb_recv_data[6]==2 && usb_recv_len==9) //discover Format
+#endif
+				if (usb_recv_data[6]==2 && usb_recv_len==9) //discover Format
 				{
 					floppy_selectDrive(DRIVE_SELECT_A);
 					floppy_setMotor(0,1);
@@ -260,20 +262,11 @@ int main()
 					printf("fmt id %d\n",fmt);
 					usb_startTransmit(5);
 				}
-				else if (usb_recv_data[6]==3 && usb_recv_len==12) //configure
+				else if (usb_recv_data[6]==3 && usb_recv_len==11) //configure
 				{
-					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10]);
+					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9]);
 
-					if (mfm_mode==MFM_MODE_ISO && usb_recv_data[11]==0x12 && geometry_format!=FLOPPY_FORMAT_RAW)
-					{
-						floppy_selectDrive(DRIVE_SELECT_A);
-						floppy_setMotor(0,1);
-						mfm_write_setEnableState(ENABLE);
-
-						floppy_iso_calibrateTrackLength();
-						mfm_write_setEnableState(DISABLE);
-						floppySpinTimeOut=250;
-					}
+					configuration_flags=usb_recv_data[10];
 
 					usb_send_data=usb_blockedGetTxBuf();
 					usb_send_data[0]='O';

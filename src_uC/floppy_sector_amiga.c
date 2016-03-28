@@ -24,7 +24,7 @@ uint32_t byteSwap(uint32_t num)
 	                    ((num<<24)&0xff000000); // byte 0 to byte 3
 }
 
-int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
+int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 {
 	int sector,i;
 	uint32_t amiga_sectorHeader; //4 byte header
@@ -56,16 +56,16 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 	if (floppy_waitForIndex())
 		return 1;
 
-	if (!simulate)
-	{
-		floppy_setWriteGate(1);
+	floppy_setWriteGate(1);
 
-		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
+	mfm_configureWrite(MFM_ENCODE,8);
+	mfm_configureWriteCellLength(0);
+	mfm_blockedWrite(0x00);
+
+	//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
 		
-		if (floppy_waitForIndex())
-			return 1;
-		
-	}
+	if (floppy_waitForIndex())
+		return 1;
 
 	//Am Anfang des Tracks ein paar 0 Bytes? Wie viele eigentlich? Und warum ?
 
@@ -73,6 +73,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate)
 	//printf("TrackDat: %p %x\n",&trackBuf[254%128],trackBuf[254%128]);
 
 	mfm_configureWrite(MFM_ENCODE,8);
+
 	for (i=0;i<10;i++)
 		mfm_blockedWrite(0x00);
 

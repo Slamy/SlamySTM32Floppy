@@ -11,15 +11,18 @@ enum floppyFormat floppy_discoverFloppyFormat();
 
 
 int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead);
-int floppy_iso_writeTrack(int cylinder, int head, int simulate);
+int floppy_iso_writeTrack(int cylinder, int head);
 int floppy_iso_calibrateTrackLength();
 int floppy_iso_getSectorNum(int sectorPos);
 void floppy_iso_evaluateSectorInterleaving();
 void floppy_iso_buildSectorInterleavingLut();
 
 int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead);
-int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head, int simulate);
-int floppy_iso_reduceGap();
+int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head);
+//int floppy_iso_reduceGap();
+void floppy_iso_setGaps();
+
+int floppy_raw_writeTrack(int cylinder, int head);
 
 //extern uint8_t trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
 //extern uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
