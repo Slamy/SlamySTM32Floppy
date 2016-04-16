@@ -19,20 +19,21 @@
 #define AMIGA_MFM_MASK 0x55555555
 
 
-enum mfmMode
+enum fluxMode
 {
-	MFM_MODE_ISO,
-	MFM_MODE_AMIGA
+	FLUX_MODE_MFM_ISO,
+	FLUX_MODE_MFM_AMIGA,
+	FLUX_MODE_GCR_C64
 };
 
-enum mfmEncodeMode
+enum fluxEncodeMode
 {
-	MFM_ENCODE,
-	MFM_RAW,
-	MFM_ENCODE_ODD
+	FLUX_MFM_ENCODE,
+	FLUX_RAW,
+	FLUX_MFM_ENCODE_ODD
 };
 
-extern enum mfmMode mfm_mode;
+extern enum fluxMode flux_mode;
 extern uint32_t mfm_decodeCellLength;
 
 extern volatile uint8_t mfm_decodedByte;
@@ -48,14 +49,13 @@ extern int indexOverflowCount;
 
 void TIM2_IRQHandler(void);
 unsigned short mfm_iso_encode(unsigned char data);
-void mfm_read_init();
-void mfm_write_init();
+void flux_read_init();
+void flux_write_init();
 
-void mfm_read_setEnableState(FunctionalState state);
-void mfm_write_setEnableState(FunctionalState state);
+void flux_read_setEnableState(FunctionalState state);
+void flux_write_setEnableState(FunctionalState state);
 
-void mfm_setDecodingMode(enum mfmMode mode);
-
+//void mfm_setDecodingMode(enum fluxMode mode);
 
 
 void printShortBin(unsigned short val);
@@ -65,8 +65,47 @@ void printLongBin(unsigned long val);
 void mfm_blockedRead();
 void mfm_blockedWaitForSyncWord(int expectNum);
 
-void mfm_blockedWrite(uint32_t word);
-void mfm_configureWrite(enum mfmEncodeMode mode, int wordLen);
-void mfm_configureWriteCellLength(uint16_t cellLength);
+void flux_blockedWrite(uint32_t word);
+void flux_configureWrite(enum fluxEncodeMode mode, int wordLen);
+void flux_configureWriteCellLength(uint16_t cellLength);
+
+
+//Wichtig für den Unit Test, um während des Wartens Inputs zu liefern.
+#ifdef CUNIT
+
+	void activeWaitCbk(void);
+
+	#define ACTIVE_WAITING activeWaitCbk();
+#else
+	#define ACTIVE_WAITING
+#endif
+
+extern unsigned int diff;
+
+
+void gcr_blockedWaitForSyncState();
+void gcr_blockedRead();
+void gcr_c64_transitionHandler();
+extern volatile uint8_t gcr_decodedByte;
+extern const unsigned char gcrEncodeTable[];
+extern const unsigned char gcrDecodeTable[];
+
+//#define ACTIVATE_DIFFCOLLECTOR
+
+#ifdef ACTIVATE_DIFFCOLLECTOR
+
+#define DIFF_COLLECTOR_SIZE 2000
+
+extern volatile unsigned short diffCollector[DIFF_COLLECTOR_SIZE];
+extern volatile unsigned int diffCollector_Anz;
+extern volatile unsigned int diffCollectorEnabled;
+
+#endif
+
+extern volatile uint16_t flux_write_nextWord_extraPause;
+extern volatile uint32_t flux_write_nextWord_len;
+extern volatile uint16_t flux_write_nextWord_cellLength;
+extern volatile uint16_t flux_write_nextWord_extraPause;
+
 
 #endif

@@ -29,6 +29,12 @@ void gpio_setPin1Mode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
 	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 2);
 }
 
+void gpio_setPin13Mode(GPIO_TypeDef* GPIOx,GPIOMode_TypeDef GPIO_Mode)
+{
+	GPIOx->MODER  &= ~(GPIO_MODER_MODER0 << 26);
+	GPIOx->MODER |= (((uint32_t)GPIO_Mode) << 26);
+}
+
 
 void floppyControl_init()
 {
@@ -62,16 +68,16 @@ void floppyControl_init()
 
 	//Init Output GPIOs
 
-	//Init /REDWC, /MOTEA, /DRVSB
-	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_1 | GPIO_Pin_8 | GPIO_Pin_15;
+	//Init /MOTEA, /DRVSB
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8 | GPIO_Pin_15;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
 	GPIO_Init(GPIOA, &GPIO_InitStructure);
 
-	//Init /DRVSA, /MOTEB, /DIR, /STEP, /SIDE1, /WGATE
-	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_11;
+	//Init /DRVSA, /MOTEB, /DIR, /STEP, /SIDE1, /WGATE, /REDWC
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_11 | GPIO_Pin_13;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
 	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
@@ -127,13 +133,13 @@ void floppy_selectDensity(enum Density val)
 	if (val==DENSITY_DOUBLE)
 	{
 		//GPIOA->BSRRL=GPIO_Pin_1; //set /REDWC to high. High Density
-		gpio_setPin1Mode(GPIOA,GPIO_Mode_IN);
+		gpio_setPin13Mode(GPIOB,GPIO_Mode_IN);
 		printf("set /REDWC to high. Makes it low/double density\n");
 	}
 	else
 	{
 		GPIOA->BSRRH=GPIO_Pin_1; //set /REDWC to low. Double Density
-		gpio_setPin1Mode(GPIOA,GPIO_Mode_OUT);
+		gpio_setPin13Mode(GPIOB,GPIO_Mode_OUT);
 		printf("set /REDWC to low. Makes it high density.\n");
 	}
 }
@@ -179,6 +185,10 @@ void floppy_setMotor(int drive, int val)
 
 void floppy_setHead(int head)
 {
+	/*
+	if (configuration_flags & CONFIGFLAG_INVERT_SIDES)
+		head=!head;
+	*/
 
 	//printf("setHead %d %d\n",GPIOB->IDR & GPIO_Pin_11,head);
 	if (head)
@@ -276,6 +286,9 @@ void floppy_stepToCylinder(unsigned int wantedCyl)
 
 void floppy_setWriteGate(int val)
 {
+
+	//val=0; //Kein schreiben zulassen
+
 	//printf("setWriteGate %d",GPIOB->IDR & GPIO_Pin_5);
 	if (val)
 		GPIOB->BSRRH=GPIO_Pin_5; //set /WGATE to low
@@ -311,6 +324,21 @@ void EXTI3_IRQHandler(void)
 
 int floppy_waitForIndex()
 {
+
+#if 1
+	setupStepTimer(20000);
+
+	while (!indexHappened)
+	{
+		if (TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==SET)
+		{
+			return 0;
+		}
+	}
+
+
+#endif
+
 	//Wir wollen hier auf den Moment der fallenden Flanke warten.
 
 	setupStepTimer(50000);

@@ -9,6 +9,7 @@
 #include "floppy_settings.h"
 #include "floppy_sector.h"
 #include "floppy_control.h"
+#include "floppy_indexSim.h"
 #include "floppy_mfm.h"
 #include "tm_stm32f4_usb_vcp.h"
 #include "assert.h"
@@ -69,13 +70,9 @@ void led_init()
 	STM_EVAL_LEDOff(LED6);
 }
 
-/*
-extern volatile unsigned int diffCollector[1000];
-extern volatile unsigned int diffCollector_Anz;
+#ifdef ACTIVATE_DIFFCOLLECTOR
 volatile unsigned int diffCollector_printIt=0;
-*/
-
-
+#endif
 
 volatile unsigned char *usb_recv_data;
 volatile unsigned char usb_recv_len=0;
@@ -87,9 +84,10 @@ int main()
 	int i;
 	SysTick_Config(SystemCoreClock/ 100);
 	led_init();
-	mfm_read_init();
-	mfm_write_init();
+	flux_read_init();
+	flux_write_init();
 	floppyControl_init();
+	floppy_indexSim_init();
 
 	printf("Slamy STM32 Floppy Controller\n");
 
@@ -112,28 +110,48 @@ int main()
 
 	printf("At track 00\n");
 
-	/*
-	floppy_selectDrive(DRIVE_SELECT_A);
-	floppy_setMotor(0,1);
-	//floppy_measureRpm();
 
+	gcr_c64_crossVerifyCodeTables();
+	//floppy_indexSim_setEnableState(ENABLE);
+	//floppy_selectDensity(DENSITY_DOUBLE);
+	//floppy_selectDrive(DRIVE_SELECT_A);
+	//floppy_setMotor(0,1);
+
+	//floppy_measureRpm();
+	/*
 	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0,0);
 	floppy_writeAndVerifyCylinder(22);
 
 	floppy_configureFormat(FLOPPY_FORMAT_ISO_HD,0,0,0);
 	floppy_writeAndVerifyCylinder(0);
-
+	*/
+	/*
 	floppy_debugTrackDataMachine(0,0);
+	floppy_debugTrackDataMachine(1,0);
+	floppy_debugTrackDataMachine(2,0);
+	floppy_debugTrackDataMachine(3,0);
+	floppy_debugTrackDataMachine(4,0);
+	*/
+	/*
 	floppy_debugTrackDataMachine(0,1);
 	floppy_debugTrackDataMachine(1,0);
 	floppy_debugTrackDataMachine(1,1);
+	*/
 
-	 */
+	/*
+	for (i=0;i<30;i++)
+	{
+		floppy_discoverFloppyFormat(i,1);
+	}
+	*/
+
+
 	floppySpinTimeOut=500;
 
 
 	//floppyControl_selectDrive(DRIVE_SELECT_NONE);
 	//activeWaitMeasure();
+
 
 	for(;;)
 	{
@@ -154,19 +172,28 @@ int main()
 
 			floppy_selectDrive(DRIVE_SELECT_NONE);
 			floppy_setMotor(0,0);
-			mfm_read_setEnableState(DISABLE);
-			mfm_write_setEnableState(DISABLE);
+			flux_read_setEnableState(DISABLE);
+			flux_write_setEnableState(DISABLE);
 		}
 
-		/*
-		if (diffCollector_Anz==999 && diffCollector_printIt!=999)
+#ifdef ACTIVATE_DIFFCOLLECTOR
+		if (diffCollector_Anz==(DIFF_COLLECTOR_SIZE) && diffCollector_printIt<(DIFF_COLLECTOR_SIZE-1))
 		{
-			printf("%d\n",diffCollector[diffCollector_printIt]);
+			printf("%d ",diffCollector[diffCollector_printIt]);
 
-			if (diffCollector_printIt<999)
+
+			while (diffCollector[diffCollector_printIt] > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+			{
+				printf("0");
+				diffCollector[diffCollector_printIt]-=mfm_decodeCellLength;
+			}
+			printf("1\n");
+
+			if (diffCollector_printIt<(DIFF_COLLECTOR_SIZE-1))
 				diffCollector_printIt++;
 		}
-		*/
+#endif
+
 
 		usb_recv_len=usb_getRecvLen();
 		if (usb_recv_len)
@@ -264,10 +291,11 @@ int main()
 				}
 				else if (usb_recv_data[6]==3 && usb_recv_len==11) //configure
 				{
-					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9]);
 
-					configuration_flags=usb_recv_data[10];
+					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10]);
 
+
+					printf("configuration_flags:%x\n",configuration_flags);
 					usb_send_data=usb_blockedGetTxBuf();
 					usb_send_data[0]='O';
 					usb_send_data[1]='K';
@@ -352,6 +380,13 @@ int main()
 						{
 							printf("floppy_writeAndVerifyCylinder failed\n");
 						}
+						/*
+						ret=floppy_writeAndVerifyCylinder(cylinder+1);
+						if (ret)
+						{
+							printf("floppy_writeAndVerifyCylinder failed\n");
+						}
+						*/
 					}
 					else
 					{
@@ -365,6 +400,42 @@ int main()
 					usb_send_data[2]='R';
 					usb_send_data[3]=ret;
 					usb_startTransmit(4);
+				}
+				else if (usb_recv_data[6]==5 && usb_recv_len==8) //polarize cylinder
+				{
+					int cylinder=usb_recv_data[7];
+
+					printf("Polarize the cylinder %d!\n",cylinder);
+
+					floppy_selectDrive(DRIVE_SELECT_A);
+					floppy_setMotor(0,1);
+
+					int ret=floppy_polarizeCylinder(cylinder);
+					if (ret)
+					{
+						printf("floppy_polarizeCylinder failed\n");
+					}
+
+					usb_send_data=usb_blockedGetTxBuf();
+					usb_send_data[0]='P';
+					usb_send_data[1]='O';
+					usb_send_data[2]='L';
+					usb_send_data[3]=ret;
+					usb_startTransmit(4);
+
+				}
+				else if (usb_recv_data[6]==6 && usb_recv_len==7) //measure rpm
+				{
+
+					floppy_selectDrive(DRIVE_SELECT_A);
+					floppy_setMotor(0,1);
+
+					floppy_measureRpm();
+
+					usb_send_data=usb_blockedGetTxBuf();
+					usb_send_data[0]='O';
+					usb_send_data[1]='K';
+					usb_startTransmit(2);
 				}
 				else
 				{

@@ -24,6 +24,17 @@ void floppy_iso_setGaps();
 
 int floppy_raw_writeTrack(int cylinder, int head);
 
+
+void floppy_c64_setTrackSettings(int trk);
+int floppy_c64_readTrackMachine(int expectedCyl);
+int floppy_c64_trackToExpect(int cylinder);
+void floppy_c64_stepToTrack(int track);
+void gcr_c64_crossVerifyCodeTables(void);
+int floppy_c64_writeTrack(uint32_t cylinder);
+
+int floppy_polarizeCylinder(unsigned int cylinder);
+
+
 //extern uint8_t trackBuffer[SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER];
 //extern uint32_t trackBuffer[(MAX_SECTOR_SIZE * MAX_SECTORS_PER_CYLINDER) / 4];
 

@@ -29,11 +29,12 @@ int saveCompressedVariableDensity(unsigned char *dest, CapsULong *timebuf, CapsU
 	assert(timebuf);
 
 	CapsULong currentVal=timebuf[0];
+	CapsULong trueCellLength=MFM_BITTIME_DD*currentVal/2000;
 
 	dest[0]=0;
 	dest[1]=0;
-	dest[2]=currentVal>>8;
-	dest[3]=currentVal&0xff;
+	dest[2]=trueCellLength>>8;
+	dest[3]=trueCellLength&0xff;
 	dest+=4;
 	compressedBytes+=4;
 	printf("density from %d is %d\n",0,currentVal);
@@ -43,10 +44,13 @@ int saveCompressedVariableDensity(unsigned char *dest, CapsULong *timebuf, CapsU
 		if (currentVal!=timebuf[i])
 		{
 			currentVal=timebuf[i];
+
+			CapsULong trueCellLength=MFM_BITTIME_DD*currentVal/2000;
+
 			dest[0]=i>>8;
 			dest[1]=i&0xff;
-			dest[2]=currentVal>>8;
-			dest[3]=currentVal&0xff;
+			dest[2]=trueCellLength>>8;
+			dest[3]=trueCellLength&0xff;
 			dest+=4;
 			compressedBytes+=4;
 			printf("density from %d is %d\n",i,currentVal);
@@ -58,6 +62,7 @@ int saveCompressedVariableDensity(unsigned char *dest, CapsULong *timebuf, CapsU
 	dest[2]=0;
 	dest[3]=0;
 	dest+=4;
+	compressedBytes+=4;
 
 	return compressedBytes;
 }
@@ -96,7 +101,7 @@ int readImage_ipf(const char *path)
 
 			geometry_cylinders=0;
 			geometry_heads=2;
-			format=FLOPPY_FORMAT_RAW;
+			format=FLOPPY_FORMAT_RAW_MFM;
 			struct CapsTrackInfo trackInf;
 
 			int cylinder=0;

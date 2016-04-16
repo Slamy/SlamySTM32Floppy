@@ -13,9 +13,11 @@ enum floppyFormat
 	FLOPPY_FORMAT_ISO_DD,
 	FLOPPY_FORMAT_ISO_HD,
 	FLOPPY_FORMAT_AMIGA_DD,
+	FLOPPY_FORMAT_C64,
 
 	/* Special formats */
-	FLOPPY_FORMAT_RAW
+	FLOPPY_FORMAT_RAW_MFM,
+	FLOPPY_FORMAT_RAW_GCR
 };
 
 
@@ -49,12 +51,16 @@ extern unsigned char geometry_iso_gap4_postData;	//24x 4E
 
 extern unsigned char geometry_iso_gap5_preIndex;	//16x 4E
 
+extern unsigned char geometry_c64_gap_size;
+
 extern uint32_t configuration_flags;
 #define CONFIGFLAG_ISO_NO_ROOM_REDUCE_GAP 1
 #define CONFIGFLAG_ISO_NO_ROOM_REDUCE_BITRATE 2
+#define CONFIGFLAG_INVERT_SIDES 4
+#define CONFIGFLAG_FLIPPY_SIMULATE_INDEX 8
 
 
-void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads);
+void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uint32_t flags);
 
 #endif
 

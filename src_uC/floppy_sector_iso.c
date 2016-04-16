@@ -125,9 +125,9 @@ int floppy_iso_writeTrack(int cylinder, int head)
 		floppy_setWriteGate(1);
 
 		//die Spur bis zum Index mit 0en vollschreiben. Vermeidet Müll, den wir nicht haben wollen
-		mfm_configureWrite(MFM_ENCODE,8);
-		mfm_configureWriteCellLength(mfm_decodeCellLength - iso_cellLengthDecrement);
-		mfm_blockedWrite(0x00);
+		flux_configureWrite(FLUX_MFM_ENCODE,8);
+		flux_configureWriteCellLength(mfm_decodeCellLength - iso_cellLengthDecrement);
+		flux_blockedWrite(0x00);
 
 		if (floppy_waitForIndex())
 			return 1;
@@ -138,25 +138,25 @@ int floppy_iso_writeTrack(int cylinder, int head)
 
 #if 0
 		for (i=0;i<geometry_iso_gap1_postIndex;i++)
-			mfm_blockedWrite(geometry_iso_fillerByte);
+			flux_blockedWrite(geometry_iso_fillerByte);
 
 		{
 			//Nun der Track Header, wenn überhaupt erwünscht.
 
 			for (i=0;i<12;i++)
-				mfm_blockedWrite(0x00);
+				flux_blockedWrite(0x00);
 
-			mfm_configureWrite(MFM_RAW,16);
+			flux_configureWrite(MFM_RAW,16);
 			for (i=0;i<3;i++)
-				mfm_blockedWrite(0x5524);
-			mfm_configureWrite(MFM_ENCODE,8);
+				flux_blockedWrite(0x5524);
+			flux_configureWrite(MFM_ENCODE,8);
 
-			mfm_blockedWrite(0xFC);
+			flux_blockedWrite(0xFC);
 		}
 #endif
 
 		for (i=0;i<geometry_iso_gap1_postIndex;i++)
-			mfm_blockedWrite(geometry_iso_fillerByte);
+			flux_blockedWrite(geometry_iso_fillerByte);
 
 
 		int dataPos=geometry_sectors*4; //Überspringe 4 Byte pro Sektor wegen den "ISO Custom Settings"
@@ -177,99 +177,99 @@ int floppy_iso_writeTrack(int cylinder, int head)
 
 			//Gap 2 Pre Id. Normalerweise 12x 00
 			for (i=0;i<geometry_iso_gap2_preID_00;i++)
-				mfm_blockedWrite(0x00);
+				flux_blockedWrite(0x00);
 
 			crc=0xffff;
 
-			mfm_configureWrite(MFM_RAW,16);
+			flux_configureWrite(FLUX_RAW,16);
 			for (i=0;i<3;i++)
 			{
-				mfm_blockedWrite(0x4489);
+				flux_blockedWrite(0x4489);
 				crc_shiftByte(0xa1);
 			}
-			mfm_configureWrite(MFM_ENCODE,8);
+			flux_configureWrite(FLUX_MFM_ENCODE,8);
 
-			mfm_blockedWrite(0xfe);
+			flux_blockedWrite(0xfe);
 			crc_shiftByte(0xfe);
 
-			mfm_blockedWrite(cylinder);
+			flux_blockedWrite(cylinder);
 			crc_shiftByte(cylinder);
 
-			mfm_blockedWrite(head);
+			flux_blockedWrite(head);
 			crc_shiftByte(head);
 
 			//unsigned char sectorId=floppy_iso_getSectorNum(sector);
-			mfm_blockedWrite(geometry_iso_sectorId[sectorPos]);
+			flux_blockedWrite(geometry_iso_sectorId[sectorPos]);
 			crc_shiftByte(geometry_iso_sectorId[sectorPos]);
 
-			mfm_blockedWrite(geometry_iso_sectorHeaderSize[sectorPos]);
+			flux_blockedWrite(geometry_iso_sectorHeaderSize[sectorPos]);
 			crc_shiftByte(geometry_iso_sectorHeaderSize[sectorPos]);
 
-			mfm_blockedWrite(crc>>8);
-			mfm_blockedWrite(crc&0xff);
+			flux_blockedWrite(crc>>8);
+			flux_blockedWrite(crc&0xff);
 
 			//Das war der Header. Jetzt wieder ein Gap und dann die Daten.
 			crc=0xffff;
 
 			//Gap 3
 			for (i=0;i<geometry_iso_gap3_postID;i++)
-				mfm_blockedWrite(geometry_iso_fillerByte);
+				flux_blockedWrite(geometry_iso_fillerByte);
 
 			for (i=0;i<geometry_iso_gap3_preData_00;i++)
-				mfm_blockedWrite(0x00);
+				flux_blockedWrite(0x00);
 
-			mfm_configureWrite(MFM_RAW,16);
+			flux_configureWrite(FLUX_RAW,16);
 			for (i=0;i<3;i++)
 			{
-				mfm_blockedWrite(0x4489);
+				flux_blockedWrite(0x4489);
 				crc_shiftByte(0xa1);
 			}
-			mfm_configureWrite(MFM_ENCODE,8);
+			flux_configureWrite(FLUX_MFM_ENCODE,8);
 
 			sectorData=&((uint8_t*)cylinderBuffer)[dataPos];
 			//printf("sectorData calc %d %d %d %d %p %p\n",sector, head, geometry_sectors, geometry_payloadBytesPerSector,sectorData,&trackBuffer);
 
 			if (geometry_iso_sectorErased[sectorPos])
 			{
-				mfm_blockedWrite(0xf8); //Deleted Data Address Mark
+				flux_blockedWrite(0xf8); //Deleted Data Address Mark
 				crc_shiftByte(0xf8);
 			}
 			else
 			{
-				mfm_blockedWrite(0xfb); //Data Address Mark
+				flux_blockedWrite(0xfb); //Data Address Mark
 				crc_shiftByte(0xfb);
 			}
 
 			//crc=0xFFFF;
 			for (i=0;i<geometry_actualSectorSize[sectorPos];i++)
 			{
-				mfm_blockedWrite(sectorData[i]);
+				flux_blockedWrite(sectorData[i]);
 				crc_shiftByte(sectorData[i]);
 			}
 
-			mfm_blockedWrite(crc>>8);
-			mfm_blockedWrite(crc&0xff);
+			flux_blockedWrite(crc>>8);
+			flux_blockedWrite(crc&0xff);
 
 			dataPos+=geometry_actualSectorSize[sectorPos];
 
 
 			for (i=0;i<geometry_iso_gap4_postData;i++)
-				mfm_blockedWrite(geometry_iso_fillerByte);
+				flux_blockedWrite(geometry_iso_fillerByte);
 		}
 
 		if (geometry_iso_gap5_preIndex)
 		{
 			for (i=0;i<geometry_iso_gap5_preIndex;i++)
-				mfm_blockedWrite(geometry_iso_fillerByte);
+				flux_blockedWrite(geometry_iso_fillerByte);
 		}
 		else
-			mfm_blockedWrite(geometry_iso_fillerByte);
+			flux_blockedWrite(geometry_iso_fillerByte);
 
 		floppy_setWriteGate(0);
 
 		//zum auslaufen
 		for (i=0;i<5;i++)
-			mfm_blockedWrite(geometry_iso_fillerByte);
+			flux_blockedWrite(geometry_iso_fillerByte);
 
 
 		if (indexOverflowCount)
@@ -415,7 +415,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 		}
 		else
 		{
-			//printf("SecHead: %d %d %x\n",header_cyl,header_head,header_secId);
+			printf("SecHead: %d %d %x\n",header_cyl,header_head,header_secId);
 
 			if (!trackSectorDetected[(header_secPos)+(expectedHead * MAX_SECTORS_PER_TRACK)])
 			{
@@ -538,7 +538,14 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 			lastSectorDataFormat=0xfb;
 
+
 		}
+
+		//Setze Status zurück...
+		header_cyl=0;
+		header_head=0;
+		header_secId=0;
+
 		trackReadState=0;
 
 		break;

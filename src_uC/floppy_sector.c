@@ -42,15 +42,15 @@ enum floppyFormat floppy_discoverFloppyFormat(int cylinder, int head)
 	int failCnt;
 	enum floppyFormat flopfrmt;
 
-	//Wir versuchen es zuerst mit HD, dann mit DD
-	floppy_stepToCylinder00();
+
 	floppy_stepToCylinder(cylinder);
 	floppy_setHead(head);
-	mfm_read_setEnableState(ENABLE);
+	flux_read_setEnableState(ENABLE);
 
-	for (flopfrmt=FLOPPY_FORMAT_ISO_DD; flopfrmt <= FLOPPY_FORMAT_AMIGA_DD; flopfrmt++)
+	//for (flopfrmt=FLOPPY_FORMAT_ISO_DD; flopfrmt <= FLOPPY_FORMAT_C64; flopfrmt++)
+	flopfrmt=FLOPPY_FORMAT_C64;
 	{
-		floppy_configureFormat(flopfrmt,0,0);
+		floppy_configureFormat(flopfrmt,0,0,0);
 
 		setupStepTimer(10000);
 
@@ -67,10 +67,12 @@ enum floppyFormat floppy_discoverFloppyFormat(int cylinder, int head)
 				failCnt++;
 			}
 
-			if (mfm_mode==MFM_MODE_AMIGA)
+			if (flux_mode==FLUX_MODE_MFM_AMIGA)
 				floppy_amiga_readTrackMachine(cylinder,head);
-			else
+			else if (flux_mode==FLUX_MODE_MFM_ISO)
 				floppy_iso_readTrackMachine(cylinder, head);
+			else
+				floppy_c64_readTrackMachine(cylinder);
 		}
 
 		printf("Aborted with results: %d %d 0x%x\n",sectorsDetected,flopfrmt,lastSectorDataFormat);
@@ -83,7 +85,7 @@ enum floppyFormat floppy_discoverFloppyFormat(int cylinder, int head)
 
 	}
 
-	mfm_read_setEnableState(DISABLE);
+	flux_read_setEnableState(DISABLE);
 
 	return FLOPPY_FORMAT_UNKNOWN;
 
@@ -107,6 +109,24 @@ void floppy_readTrackMachine_init()
 }
 
 
+void printSectorReadState()
+{
+	int i;
+	for (i=0;i<geometry_sectors;i++)
+	{
+		if (trackSectorRead[i])
+		{
+			printf("K");
+		}
+		else
+		{
+			printf("_");
+		}
+		trackSectorRead[i]=0;
+	}
+	printf("\n");
+}
+
 int floppy_writeAndVerifyTrack(int cylinder, int head)
 {
 	unsigned int i=0;
@@ -117,39 +137,54 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 	for (try=0; try < 3; try++)
 	{
 		//printf("Write... %d %d\n",cylinder,head);
-		mfm_write_setEnableState(ENABLE);
+#if 1
+		flux_write_setEnableState(ENABLE);
 		//printf("mfm_write enabled\n");
 
-		if (mfm_mode == MFM_MODE_AMIGA)
+		if (flux_mode == FLUX_MODE_MFM_AMIGA)
 		{
 			if (floppy_amiga_writeTrack(cylinder,head))
 				return 2;
 		}
-		else
+		else if (flux_mode == FLUX_MODE_MFM_ISO)
 		{
 			if (floppy_iso_writeTrack(cylinder,head))
 				return 2;
 		}
+		else
+		{
+			if (floppy_c64_writeTrack(cylinder))
+				return 2;
+		}
 
-		mfm_write_setEnableState(DISABLE);
+		flux_write_setEnableState(DISABLE);
+#endif
 		printf("Verify...\n");
 		setupStepTimer(10000);
 
 		failCnt=0;
 		floppy_readTrackMachine_init();
+		printSectorReadState();
+
+		if (flux_mode == FLUX_MODE_GCR_C64)
+			floppy_c64_setTrackSettings(floppy_c64_trackToExpect(cylinder));
+
 		verifyMode=1;
 
-		mfm_read_setEnableState(ENABLE);
+		flux_read_setEnableState(ENABLE);
 		abortVerify=0;
 		while (sectorsRead < geometry_sectors && !abortVerify)
 		{
 
 			int readTrackMachineRet;
 
-			if (mfm_mode == MFM_MODE_AMIGA)
+			if (flux_mode == FLUX_MODE_MFM_AMIGA)
 				readTrackMachineRet=floppy_amiga_readTrackMachine(cylinder,head);
-			else
+			else if (flux_mode == FLUX_MODE_MFM_ISO)
 				readTrackMachineRet=floppy_iso_readTrackMachine(cylinder,head);
+			else
+				readTrackMachineRet=floppy_c64_readTrackMachine(cylinder);
+
 
 			if (readTrackMachineRet)
 			{
@@ -165,28 +200,20 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 				if (failCnt > 4)
 				{
 					printf("Failed to verify Track:");
-					for (i=0;i<geometry_sectors;i++)
-					{
-						if (trackSectorRead[i])
-						{
-							printf("K");
-						}
-						else
-						{
-							printf("_");
-						}
-						trackSectorRead[i]=0;
-					}
-					printf("\n");
+					printSectorReadState();
 					abortVerify=1;
 				}
 			}
 
 		}
-		mfm_read_setEnableState(DISABLE);
+		flux_read_setEnableState(DISABLE);
 
 		if (sectorsRead == geometry_sectors)
+		{
+			printf("Finished verify:\n");
+			printSectorReadState();
 			return 0;
+		}
 	}
 
 	return 1;
@@ -245,7 +272,7 @@ int floppy_writeAndVerifyCylinder(unsigned int cylinder)
 	{
 		floppy_setHead(head);
 
-		if (geometry_format == FLOPPY_FORMAT_RAW)
+		if (geometry_format == FLOPPY_FORMAT_RAW_MFM)
 		{
 			if (floppy_raw_writeTrack(cylinder,head))
 				return 1;
@@ -272,7 +299,7 @@ int floppy_readCylinder(unsigned int cylinder)
 
 	//printf("Stepped to track %d",track);
 
-	mfm_read_setEnableState(ENABLE);
+	flux_read_setEnableState(ENABLE);
 
 	for (head=0; head < geometry_heads; head++)
 	{
@@ -310,14 +337,39 @@ int floppy_readCylinder(unsigned int cylinder)
 				}
 			}
 
-			if (mfm_mode == MFM_MODE_AMIGA)
+			if (flux_mode == FLUX_MODE_MFM_AMIGA)
 				floppy_amiga_readTrackMachine(cylinder,head);
-			else
+			else if (flux_mode == FLUX_MODE_MFM_ISO)
 				floppy_iso_readTrackMachine(cylinder,head);
+			else
+				floppy_c64_readTrackMachine(cylinder);
 		}
 	}
 
-	mfm_read_setEnableState(DISABLE);
+	flux_read_setEnableState(DISABLE);
+
+	return 0;
+}
+
+
+int floppy_polarizeCylinder(unsigned int cylinder)
+{
+	int head;
+
+	floppy_stepToCylinder(cylinder);
+
+	if (floppy_waitForIndex())
+		return 1;
+
+	for (head=0; head < geometry_heads; head++)
+	{
+		floppy_setHead(head);
+		floppy_setWriteGate(1);
+
+		if (floppy_waitForIndex())
+			return 1;
+		floppy_setWriteGate(0);
+	}
 
 	return 0;
 }
@@ -328,8 +380,13 @@ void floppy_debugTrackDataMachine(int track, int head )
 
 	floppy_stepToCylinder(track);
 	floppy_setHead(head);
-	floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0);
-	mfm_read_setEnableState(ENABLE);
+	//floppy_configureFormat(FLOPPY_FORMAT_AMIGA_DD,0,0);
+	//floppy_configureFormat(FLOPPY_FORMAT_ISO_DD,0,0);
+	floppy_configureFormat(FLOPPY_FORMAT_C64,0,0,0);
+
+	floppy_c64_setTrackSettings(0);
+
+	flux_read_setEnableState(ENABLE);
 
 	setupStepTimer(10000);
 
@@ -346,9 +403,11 @@ void floppy_debugTrackDataMachine(int track, int head )
 			failCnt++;
 		}
 
-		floppy_amiga_readTrackMachine(track,head);
+		//floppy_amiga_readTrackMachine(track,head);
+		//floppy_iso_readTrackMachine(track,head);
+		floppy_c64_readTrackMachine(track);
 	}
 
-	mfm_read_setEnableState(DISABLE);
+	flux_read_setEnableState(DISABLE);
 }
 

@@ -29,7 +29,7 @@ unsigned short crc=0xFFFF;
 
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
-unsigned char geometry_sectorsPerCylinder[MAX_CYLINDERS];
+char geometry_sectorsPerCylinder[MAX_CYLINDERS];
 unsigned char geometry_iso_gap3length[MAX_CYLINDERS];
 unsigned char geometry_iso_fillerByte[MAX_CYLINDERS];
 unsigned short geometry_actualSectorSize[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK]; //tatsächliche Größe der Daten in Byte
@@ -39,6 +39,9 @@ unsigned char geometry_iso_sectorErased[MAX_CYLINDERS][MAX_SECTORS_PER_TRACK];
 
 #define CONFIGFLAG_ISO_NO_ROOM_REDUCE_GAP 1
 #define CONFIGFLAG_ISO_NO_ROOM_REDUCE_BITRATE 2
+#define CONFIGFLAG_INVERT_SIDES 4
+#define CONFIGFLAG_FLIPPY_SIMULATE_INDEX 8
+
 uint32_t configuration_flags=0;
 
 int geometry_iso_sectorInterleave=0;
@@ -46,7 +49,7 @@ int geometry_iso_sectorInterleave=0;
 //#define CYLINDER_BUFFER_SIZE MAX_HEADS * MAX_SECTORS_PER_TRACK * MAX_SECTOR_SIZE //für HD ausreichend
 
 unsigned char image_cylinderBuf[MAX_CYLINDERS][CYLINDER_BUFFER_SIZE];
-unsigned int image_cylinderSize[MAX_CYLINDERS];
+int image_cylinderSize[MAX_CYLINDERS];
 
 static const unsigned int isoSectorSizes[]={
 		128, //0
@@ -69,9 +72,9 @@ char *formatStr[]=
 	"Iso DD",
 	"Iso HD",
 	"Amiga DD",
+	"C64",
 	"Raw MFM"
 };
-
 
 void crc_shiftByte(unsigned char b)
 {
@@ -243,6 +246,36 @@ void discoverFormat(int cylinder, int head)
 	else
 	{
 		printf("Format: %s mit %d Sektoren\n",formatStr[recvBuf[3]],recvBuf[4]);
+	}
+}
+
+
+void measureRpm()
+{
+	int bytes_read;
+	unsigned char sendBuf[64];
+	unsigned char recvBuf[64];
+
+	sendBuf[0]='F'; //Magic Number
+	sendBuf[1]='l';
+	sendBuf[2]='o';
+	sendBuf[3]='p';
+	sendBuf[4]='p';
+	sendBuf[5]='y';
+	sendBuf[6]=6; //Measure Rpm
+	sendFrame(sendBuf,7);
+
+	bytes_read=receiveFrame(recvBuf);
+	if (bytes_read!=2)
+	{
+		printf("Unexpected answer!\n");
+		return;
+	}
+
+	if (memcmp("OK",recvBuf,2))
+	{
+		printf("Unexpected answer 2!\n");
+		return;
 	}
 }
 
@@ -453,6 +486,49 @@ void configureController()
 	printf("configureController %d %d %d finished!\n",format,geometry_cylinders,geometry_heads);
 }
 
+
+
+
+void polarizeCylinder(int cylinder)
+{
+	int bytes_read;
+	unsigned char sendBuf[64];
+	unsigned char recvBuf[64];
+
+	sendBuf[0]='F'; //Magic Number
+	sendBuf[1]='l';
+	sendBuf[2]='o';
+	sendBuf[3]='p';
+	sendBuf[4]='p';
+	sendBuf[5]='y';
+	sendBuf[6]=5; //polarize cylinder
+	sendBuf[7]=cylinder;
+
+	sendFrame(sendBuf,8);
+
+	bytes_read=receiveFrame(recvBuf);
+	if (bytes_read!=4)
+	{
+		printf("Unexpected answer!\n");
+		exit(1);
+	}
+
+	if (memcmp("POL",recvBuf,3))
+	{
+		printf("Unexpected answer 2!\n");
+		exit(1);
+	}
+
+	if (recvBuf[3]!=0)
+	{
+		printf("polarizeCylinder failed!\n");
+		exit(1);
+	}
+
+	printf("polarizeCylinder %d finished!\n",cylinder);
+}
+
+
 void readDisk(int first, int last)
 {
 	int track;
@@ -465,11 +541,14 @@ void readDisk(int first, int last)
 
 void writeDisk(int first, int last)
 {
-	int track;
+	int cyl;
 
-	for (track=first; track <= last; track++)
+	for (cyl=first; cyl <= last; cyl++)
 	{
-		writeCylinderFromImage(track);
+		if (image_cylinderSize[cyl]>0)
+			writeCylinderFromImage(cyl);
+		else if(image_cylinderSize[cyl]==-1)
+			polarizeCylinder(cyl);
 	}
 }
 
@@ -526,9 +605,29 @@ int analyseImage(const char *path)
 		else if (!strcmp(fileTypeStr,".ipf"))
 		{
 			printf("Interchangable Preservation Format\n");
-			format=FLOPPY_FORMAT_RAW;
+			format=FLOPPY_FORMAT_RAW_MFM;
 			return readImage_ipf(path);
 		}
+		else if (!strcmp(fileTypeStr,".d64"))
+		{
+			printf("C64 D64 Disk Image\n");
+			format=FLOPPY_FORMAT_C64;
+			return readImage_d64(path);
+		}
+		else if (!strcmp(fileTypeStr,".g64"))
+		{
+			printf("C64 G64 Disk Image\n");
+			format=FLOPPY_FORMAT_RAW_MFM;
+			return readImage_g64(path);
+		}
+#if 0
+		else if (!strcmp(fileTypeStr,".nib"))
+		{
+			printf("C64 NIB Disk Image\n");
+			format=FLOPPY_FORMAT_RAW_MFM;
+			return readImage_nib(path);
+		}
+#endif
 	}
 	else
 		exit(1);
@@ -624,6 +723,11 @@ void parseFormatString(char *str)
 		geometry_heads=2;
 		setAttributesForEveryCylinder(18,22,0x4E);
 		format=FLOPPY_FORMAT_ISO_HD;
+	}
+	else if (!strncmp(str,"flippy",6))
+	{
+		configuration_flags=CONFIGFLAG_FLIPPY_SIMULATE_INDEX;
+		printf("The heads will now be switched!\n");
 	}
 	else
 	{
@@ -807,6 +911,10 @@ int main (int argc, char **argv)
 	else if (!strcmp(argv[1],"discover") && argc == 4)
 	{
 		discoverFormat(atoi(argv[2]),atoi(argv[3]));
+	}
+	else if (!strcmp(argv[1],"measure") && argc == 2)
+	{
+		measureRpm();
 	}
 	
 

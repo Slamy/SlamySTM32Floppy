@@ -58,9 +58,9 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 
 	floppy_setWriteGate(1);
 
-	mfm_configureWrite(MFM_ENCODE,8);
-	mfm_configureWriteCellLength(0);
-	mfm_blockedWrite(0x00);
+	flux_configureWrite(FLUX_MFM_ENCODE,8);
+	flux_configureWriteCellLength(0);
+	flux_blockedWrite(0x00);
 
 	//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
 		
@@ -72,23 +72,23 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 	//printf("TrackDat: %p %x\n",&trackBuf[0],trackBuf[0]);
 	//printf("TrackDat: %p %x\n",&trackBuf[254%128],trackBuf[254%128]);
 
-	mfm_configureWrite(MFM_ENCODE,8);
+	flux_configureWrite(FLUX_MFM_ENCODE,8);
 
 	for (i=0;i<10;i++)
-		mfm_blockedWrite(0x00);
+		flux_blockedWrite(0x00);
 
 
 	for (sector=0; sector < geometry_sectors; sector++)
 	{
 		//Jeder Sektor beginnt mit 2x Bytes und 2 A1 sync words
-		mfm_configureWrite(MFM_ENCODE,8);
+		flux_configureWrite(FLUX_MFM_ENCODE,8);
 		for (i=0;i<2;i++)
-			mfm_blockedWrite(0x00);
+			flux_blockedWrite(0x00);
 
-		mfm_configureWrite(MFM_RAW,16);
+		flux_configureWrite(FLUX_RAW,16);
 		for (i=0;i<2;i++)
 		{
-			mfm_blockedWrite(0x4489);
+			flux_blockedWrite(0x4489);
 		}
 
 		//Jetzt kommt das Sector Header Longword
@@ -102,37 +102,37 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 		 */
 		amiga_sectorHeader=0xff000000 | (cylinder<<17) | (head<<16) | (sector<<8) | (geometry_sectors - sector);
 
-		mfm_configureWrite(MFM_ENCODE_ODD,16);
-		mfm_blockedWrite(amiga_sectorHeader);
-		mfm_blockedWrite(amiga_sectorHeader<<1);
+		flux_configureWrite(FLUX_MFM_ENCODE_ODD,16);
+		flux_blockedWrite(amiga_sectorHeader);
+		flux_blockedWrite(amiga_sectorHeader<<1);
 
 		//OS recovery info ist einfach 0. 16 byte also 4 longwords
 
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
 		//mfm_blockedWrite(0x42424242);
 
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
+		flux_blockedWrite(0);
 		//mfm_blockedWrite(0x42424242<<1);
 
 		//jetzt kommt die header checksumme. das ist speziell in diesem fall einfach nochmal der sektor header
-		mfm_blockedWrite(0);
+		flux_blockedWrite(0);
 		/*
 		printf("%x %x\n",
 				(amiga_sectorHeader>>1) & AMIGA_MFM_MASK,
 				amiga_sectorHeader& AMIGA_MFM_MASK);
 		*/
 
-		mfm_blockedWrite(((((amiga_sectorHeader>>1) & AMIGA_MFM_MASK) ^ (amiga_sectorHeader& AMIGA_MFM_MASK)))<<1);
+		flux_blockedWrite(((((amiga_sectorHeader>>1) & AMIGA_MFM_MASK) ^ (amiga_sectorHeader& AMIGA_MFM_MASK)))<<1);
 
 		//jetzt die datenchecksumme die vorher berechnet wurde
-		mfm_blockedWrite(0);
-		mfm_blockedWrite(amiga_checksum[sector]<<1);
+		flux_blockedWrite(0);
+		flux_blockedWrite(amiga_checksum[sector]<<1);
 		//mfm_blockedWrite(0x42424242);
 		//mfm_blockedWrite(0x42424242<<1);
 
@@ -156,14 +156,14 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 		for (i=0; i<128; i++)
 		{
 			wordToSend=byteSwap(trackBuf[i]);
-			mfm_blockedWrite(wordToSend);
+			flux_blockedWrite(wordToSend);
 			//mfm_blockedWrite(0xffffffff);
 		}
 
 		for (i=0; i<128; i++)
 		{
 			wordToSend=byteSwap(trackBuf[i]);
-			mfm_blockedWrite(wordToSend<<1);
+			flux_blockedWrite(wordToSend<<1);
 		}
 
 		trackBuf+=128;
@@ -172,7 +172,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 
 	//Spur auslaufen lassen...
 	for (i=0;i<2;i++)
-		mfm_blockedWrite(0);
+		flux_blockedWrite(0);
 
 	floppy_setWriteGate(0);
 
@@ -205,7 +205,6 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 
 	switch (trackReadState)
 	{
-
 		case 0:
 			//Wir warten auf ein Sync Word bestehend aus 2 kaputten A1 Bytes
 			//printf("mfm_inSync=0;\n");
@@ -436,6 +435,11 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 					}
 
 					lastSectorDataFormat=0xff;
+
+					//Setze Status zurück...
+					header_cyl=0;
+					header_head=0;
+					header_sec=0;
 
 				}
 				else

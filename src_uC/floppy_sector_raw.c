@@ -15,8 +15,13 @@
 #define RAWBLOCK_TYPE_HAS_VARIABLE_DENSITY 2
 #define RAWBLOCK_TYPE_TIME_DATA 4
 
+
+extern volatile int debug_addedExtraPauses;
+
 int floppy_raw_writeTrack(int cylinder, int head)
 {
+	printf("floppy_writeRawTrack %d %d\n",cylinder,head);
+
 	int i;
 	uint8_t *trackData=NULL;
 	uint8_t *timeData=NULL;
@@ -30,10 +35,11 @@ int floppy_raw_writeTrack(int cylinder, int head)
 	unsigned int timeDataCellReloadPos=0;
 	int timeDataUsed=0;
 
+	debug_addedExtraPauses=0;
+
 	uint8_t *cylBufPtr=cylinderBuffer;
 	while ( (timeDataUsed && (!trackData || !timeData)) || (!timeDataUsed && !trackData) )
 	{
-
 		int blocklen=((int)cylBufPtr[0]<<8) | cylBufPtr[1];
 
 		if (blocklen==0)
@@ -44,7 +50,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		int blocktype=cylBufPtr[2];
 
-		//printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
+		printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
 
 		if ((blocktype & RAWBLOCK_TYPE_HEAD) == head)
 		{
@@ -55,25 +61,28 @@ int floppy_raw_writeTrack(int cylinder, int head)
 			{
 				timeData=cylBufPtr+3;
 				timeDataSize=blocklen;
+				printf("timeData starts\n");
 			}
 			else
 			{
+
 				trackData=cylBufPtr+3;
 				trackDataSize=blocklen;
+				printf("Trackdata starts with %x\n",*trackData);
 			}
 		}
 
 		cylBufPtr+=3+blocklen;
 
 	}
-
+	printf("floppy_writeRawTrack %d %d %d %d %d\n",cylinder,head,trackDataSize,timeDataSize,timeDataUsed);
 
 	assert (trackData >= &cylinderBuffer[0]);
 	assert (trackData + trackDataSize < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
-	printf("floppy_writeRawTrack %d %d %d %d %d\n",cylinder,head,trackDataSize,timeDataSize,timeDataUsed);
+	printf("trackData %x %x\n",trackData[0],trackData[trackDataSize-1]);
 
-	mfm_mode=MFM_MODE_ISO;
+	flux_mode=FLUX_MODE_MFM_ISO;
 
 	//Das erste Byte muss per ENCODE übertragen werden. Ein leeres CurrentWord lässt den Automaten abstürzen!
 	//mfm_configureWrite(MFM_ENCODE,8);
@@ -99,19 +108,20 @@ int floppy_raw_writeTrack(int cylinder, int head)
 		timeDataCellLength=((int)timeData[2]<<8)|(int)timeData[3];
 		timeDataCellReloadPos=((int)timeData[4]<<8)|(int)timeData[5];
 		timeData+=6;
-		timeDataCellLength=MFM_BITTIME_DD*timeDataCellLength/2000;
+		//timeDataCellLength=MFM_BITTIME_DD*timeDataCellLength/2000;
 
-		mfm_configureWrite(MFM_RAW,8);
-		mfm_configureWriteCellLength(timeDataCellLength);
+		flux_configureWrite(FLUX_RAW,8);
+		flux_configureWriteCellLength(timeDataCellLength);
+		printf("cellLength %d\n",timeDataCellLength);
 	}
 	else
 	{
-		mfm_configureWrite(MFM_RAW,8);
-		mfm_configureWriteCellLength(0);
+		flux_configureWrite(FLUX_RAW,8);
+		flux_configureWriteCellLength(0);
 	}
 
-	mfm_read_setEnableState(DISABLE);
-	mfm_write_setEnableState(ENABLE);
+	flux_read_setEnableState(DISABLE);
+	flux_write_setEnableState(ENABLE);
 
 	int overflownBytes;
 
@@ -129,11 +139,13 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		assert((GPIOB->IDR & GPIO_Pin_5));
 		floppy_setWriteGate(1);
-		assert(!(GPIOB->IDR & GPIO_Pin_5));
+
 
 		//Ist das wirklich notwendig? Wir warten auf den Index und löschen die ganze Spur zur Sicherheit einmal...
 		if (floppy_waitForIndex())
 			return 1;
+
+		assert(!(GPIOB->IDR & GPIO_Pin_5));
 
 		overflownBytes=0;
 
@@ -167,30 +179,38 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 				if (timeDataUsed && i==timeDataCellReloadPos)
 				{
+					//printf("Reload timedata %d\n",i);
 					timeDataCellLength=((int)timeData[0]<<8)|(int)timeData[1];
 					timeDataCellReloadPos=((int)timeData[2]<<8)|(int)timeData[3];
 					timeData+=4;
-					timeDataCellLength=MFM_BITTIME_DD*timeDataCellLength/2000;
+					//timeDataCellLength=MFM_BITTIME_DD*timeDataCellLength/2000;
 
-					mfm_configureWriteCellLength(timeDataCellLength);
+					flux_configureWriteCellLength(timeDataCellLength);
 
 				}
-
+#if 0
 				if (!timeDataUsed)
 				{
 					if (raw_cellLengthDecrement&1)
 					{
 						if (i&1)
-							mfm_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1) -1);
+							flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1) -1);
 						else
-							mfm_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
+							flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
 					}
 					else
-						mfm_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
+						flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
 				}
+#endif
 
-				assert(trackData[i]);
-				mfm_blockedWrite(trackData[i]);
+				while (trackData[i]==0)
+				{
+					flux_write_nextWord_extraPause+=flux_write_nextWord_cellLength*flux_write_nextWord_len;
+					debug_addedExtraPauses++;
+					i++;
+				}
+				flux_blockedWrite(trackData[i]);
+
 
 				if (!indexHappened)
 					assert(overflownBytes==0);
@@ -198,19 +218,21 @@ int floppy_raw_writeTrack(int cylinder, int head)
 				if (indexHappened)
 					overflownBytes++;
 
+				/*
 				assert(!(GPIOB->IDR & GPIO_Pin_5));
 
 				if (head)
 					assert(!(GPIOB->IDR & GPIO_Pin_11));
 				else
 					assert((GPIOB->IDR & GPIO_Pin_11));
+				*/
 
 				assert (trackData >= &cylinderBuffer[0]);
 				assert (trackData < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 			}
 		}
 
-		mfm_blockedWrite(0x55);
+		flux_blockedWrite(0x55);
 
 		assert(!(GPIOB->IDR & GPIO_Pin_5));
 		floppy_setWriteGate(0);
@@ -220,7 +242,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		for (i=0; i < 35; i++)
 		{
-			mfm_blockedWrite(0x55);
+			flux_blockedWrite(0x55);
 
 			if (indexHappened)
 				overflownBytes++;
@@ -231,7 +253,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 		{
 			if (timeDataUsed)
 			{
-				printf("track overflown with %d and timeData.. ill accept...\n",overflownBytes);
+				printf("track overflown with %d and timeData.. ill accept... *************\n",overflownBytes);
 				overflownBytes=0;
 			}
 			else
@@ -248,6 +270,9 @@ int floppy_raw_writeTrack(int cylinder, int head)
 	}
 	while (overflownBytes > 0);
 
+	printf("debug_addedExtraPauses %d\n",debug_addedExtraPauses);
+
+
 	if (head)
 		assert(!(GPIOB->IDR & GPIO_Pin_11));
 	else
@@ -256,7 +281,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 	assert(GPIOB->IDR & GPIO_Pin_5);
 
-	mfm_write_setEnableState(DISABLE);
+	flux_write_setEnableState(DISABLE);
 
 	return 0;
 }

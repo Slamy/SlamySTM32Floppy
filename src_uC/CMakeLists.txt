@@ -27,11 +27,17 @@ add_executable (slamyflop
 	CMSIS/system_stm32f4xx.c
 	CMSIS/startup_stm32f4xx.s
 	main.c
+	floppy_indexSim.c
 	floppy_crc.c
 	floppy_mfm.c
+	floppy_mfm_read.c
+	floppy_gcr_read.c
+	floppy_flux_write.c
+	floppy_flux_read.c
 	floppy_sector.c
 	floppy_sector_iso.c
 	floppy_sector_amiga.c
+	floppy_sector_c64.c
 	floppy_sector_raw.c
 	floppy_control.c
 	floppy_settings.c
