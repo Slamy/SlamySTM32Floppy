@@ -16,8 +16,6 @@
 #define RAWBLOCK_TYPE_TIME_DATA 4
 
 
-extern volatile int debug_addedExtraPauses;
-
 int floppy_raw_writeTrack(int cylinder, int head)
 {
 	printf("floppy_writeRawTrack %d %d\n",cylinder,head);
@@ -35,7 +33,6 @@ int floppy_raw_writeTrack(int cylinder, int head)
 	unsigned int timeDataCellReloadPos=0;
 	int timeDataUsed=0;
 
-	debug_addedExtraPauses=0;
 
 	uint8_t *cylBufPtr=cylinderBuffer;
 	while ( (timeDataUsed && (!trackData || !timeData)) || (!timeDataUsed && !trackData) )
@@ -203,12 +200,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 				}
 #endif
 
-				while (trackData[i]==0)
-				{
-					flux_write_nextWord_extraPause+=flux_write_nextWord_cellLength*flux_write_nextWord_len;
-					debug_addedExtraPauses++;
-					i++;
-				}
+
 				flux_blockedWrite(trackData[i]);
 
 
@@ -269,8 +261,6 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 	}
 	while (overflownBytes > 0);
-
-	printf("debug_addedExtraPauses %d\n",debug_addedExtraPauses);
 
 
 	if (head)

@@ -102,10 +102,6 @@ extern volatile unsigned int diffCollectorEnabled;
 
 #endif
 
-extern volatile uint16_t flux_write_nextWord_extraPause;
-extern volatile uint32_t flux_write_nextWord_len;
-extern volatile uint16_t flux_write_nextWord_cellLength;
-extern volatile uint16_t flux_write_nextWord_extraPause;
 
 
 #endif

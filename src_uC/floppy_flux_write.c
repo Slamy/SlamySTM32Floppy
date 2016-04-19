@@ -14,35 +14,88 @@
 #include "floppy_mfm.h"
 #include "floppy_control.h"
 
+struct fluxWriteWords
+{
+	//Daten
+	uint32_t nextWord;
 
-static volatile uint32_t flux_write_nextWord=0;
-static volatile uint32_t flux_write_nextWord_mask=0x80;
-static volatile enum fluxEncodeMode flux_write_nextWord_encodeMode=0;
-volatile uint32_t flux_write_nextWord_len=0;
-volatile uint16_t flux_write_nextWord_cellLength=0;
-volatile uint16_t flux_write_nextWord_extraPause=0;
+	//Konfiguration
+	char changesConfig;
+	uint32_t nextWord_mask;
+	enum fluxEncodeMode nextWord_encodeMode;
+	int32_t nextWord_len;
 
-static volatile uint32_t flux_write_busy=0;
+	char changesCellLength;
+	uint16_t nextWord_cellLength;
+};
 
-static volatile uint32_t flux_write_currentWord_mask=0x80;
-static volatile uint32_t flux_write_currentWord_len=0;
+volatile struct fluxWriteWords fluxWriteFifo[10];
+volatile int writeFifo_writePos=0;
+volatile int writeFifo_readPos=0;
+volatile int writeFifo_fillState=0;
+
 static volatile uint32_t flux_write_currentWord_bit=0;
+
 static volatile uint32_t flux_write_currentWord=0;
-static volatile uint16_t flux_write_currentWord_cellLength=0;
-static volatile uint16_t flux_write_currentWord_extraPause=0;
+static volatile uint32_t flux_write_currentWord_mask=0x80;
 static volatile enum fluxEncodeMode flux_write_currentWord_encodeMode=0;
+static volatile uint32_t flux_write_currentWord_len=0;
+static volatile uint16_t flux_write_currentWord_cellLength=0;
+static volatile int      flux_write_currentWord_active=0;
+//static volatile int      flux_write_currentWord_isEmptyWord=0;
+
 
 static volatile uint32_t flux_write_lastBit=0;
 
-volatile int debug_addedExtraPauses=0;
+
+int pulseLenDefinesBreak=0;
+
+static inline void flux_Write_getNextWord()
+{
+	if (writeFifo_fillState)
+	{
+		flux_write_currentWord_bit			= 0;
+		flux_write_currentWord				= fluxWriteFifo[writeFifo_readPos].nextWord;
+
+		/*
+		if (!flux_write_currentWord)
+		{
+			flux_write_currentWord_isEmptyWord=1;
+			//flux_write_currentWord=1;
+		}
+		else
+			flux_write_currentWord_isEmptyWord=0;
+		*/
+
+		if (fluxWriteFifo[writeFifo_readPos].changesConfig)
+		{
+			flux_write_currentWord_encodeMode	= fluxWriteFifo[writeFifo_readPos].nextWord_encodeMode;
+			flux_write_currentWord_len			= fluxWriteFifo[writeFifo_readPos].nextWord_len;
+			flux_write_currentWord_mask			= fluxWriteFifo[writeFifo_readPos].nextWord_mask;
+			fluxWriteFifo[writeFifo_readPos].changesConfig=0;
+		}
+
+		if (fluxWriteFifo[writeFifo_readPos].changesCellLength)
+		{
+			flux_write_currentWord_cellLength	= fluxWriteFifo[writeFifo_readPos].nextWord_cellLength;
+			fluxWriteFifo[writeFifo_readPos].changesCellLength=0;
+		}
+
+		flux_write_currentWord_active=1;
+
+		writeFifo_fillState--;
+		writeFifo_readPos++;
+		if (writeFifo_readPos >= 10)
+			writeFifo_readPos=0;
+	}
+	else
+		flux_write_currentWord_active=0;
+}
 
 uint16_t flux_write_calcNextPauseLen(void)
 {
 	static uint16_t pauseLenAccu=0;
 	uint16_t pauseLenRet=0;
-
-	pauseLenAccu+=flux_write_currentWord_extraPause;
-	flux_write_currentWord_extraPause=0;
 
 	/*
 	printf("mfm_write_calcNextPauseLen %x %d %d %x\n",mfm_write_currentWord,
@@ -56,18 +109,25 @@ uint16_t flux_write_calcNextPauseLen(void)
 	if (!flux_write_currentWord_cellLength)
 		flux_write_currentWord_cellLength=mfm_decodeCellLength;
 
+	if (!flux_write_currentWord_active)
+	{
+		flux_Write_getNextWord();
+		return 200;
+	}
+
+	//printf("B\n");
+
+	//assert(flux_write_currentWord_encodeMode == FLUX_RAW);
+
 	if (flux_write_currentWord_encodeMode == FLUX_RAW && flux_write_currentWord==0)
 	{
-		flux_write_currentWord_bit=0;
-		flux_write_currentWord=flux_write_nextWord;
-		flux_write_currentWord_encodeMode=flux_write_nextWord_encodeMode;
-		flux_write_currentWord_len=flux_write_nextWord_len;
-		flux_write_currentWord_mask=flux_write_nextWord_mask;
-		flux_write_currentWord_cellLength=flux_write_nextWord_cellLength;
-		flux_write_currentWord_extraPause=flux_write_nextWord_extraPause;
-		flux_write_nextWord_extraPause=0;
-		flux_write_busy=0;
-		return mfm_decodeCellLength*8;
+		//printf("ret %d\n",flux_write_currentWord_cellLength*flux_write_currentWord_len);
+		pauseLenRet=flux_write_currentWord_cellLength*flux_write_currentWord_len + pauseLenAccu;
+		pauseLenAccu=0;
+		flux_Write_getNextWord();
+		pulseLenDefinesBreak=1;
+
+		return pauseLenRet;
 	}
 
 	while (!pauseLenRet) //wir akkumulieren Pausenzeiten, bis eine 1 Transition kommt.
@@ -124,25 +184,21 @@ uint16_t flux_write_calcNextPauseLen(void)
 
 		if (flux_write_currentWord_bit >= flux_write_currentWord_len)
 		{
-			flux_write_currentWord_bit=0;
-			flux_write_currentWord=flux_write_nextWord;
-			flux_write_currentWord_encodeMode=flux_write_nextWord_encodeMode;
-			flux_write_currentWord_len=flux_write_nextWord_len;
-			flux_write_currentWord_mask=flux_write_nextWord_mask;
-			flux_write_currentWord_cellLength=flux_write_nextWord_cellLength;
-			flux_write_currentWord_extraPause=flux_write_nextWord_extraPause;
+			flux_Write_getNextWord();
 
-			if (flux_write_nextWord_extraPause && flux_write_busy==0)
+			if (flux_write_currentWord_encodeMode == FLUX_RAW && flux_write_currentWord==0)
 			{
-				printf("Zu langsam! ************\n");
-				printf("debug_addedExtraPauses %d\n",debug_addedExtraPauses);
-				assert(0);
+				pauseLenRet=flux_write_currentWord_cellLength*flux_write_currentWord_len + pauseLenAccu;
+				pauseLenAccu=0;
+				flux_Write_getNextWord();
+				pulseLenDefinesBreak=1;
+
+				return pauseLenRet;
 			}
-			flux_write_nextWord_extraPause=0;
-			flux_write_busy=0;
 		}
 	}
 
+	pulseLenDefinesBreak=0;
 	return pauseLenRet;
 }
 
@@ -155,6 +211,8 @@ void TIM4_IRQHandler(void)
 	//printf("I\n");
 
 	uint16_t pulseLen=flux_write_calcNextPauseLen();
+
+	assert (pulseLen > 100);
 
 	//pulseLen*=4;
 
@@ -204,15 +262,18 @@ void TIM4_IRQHandler(void)
 	/* Write to TIMx CCMR2 register */
 	TIM4->CCMR2 = tmpccmr2;
 
-	/* Reset the OC1M Bits */
-	tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
 
-	/* Configure The Active output Mode */
-	tmpccmr2 |= TIM_OCMode_Active;
+	if (!pulseLenDefinesBreak)
+	{
+		/* Reset the OC1M Bits */
+		tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
 
-	/* Write to TIMx CCMR2 register */
-	TIM4->CCMR2 = tmpccmr2;
+		/* Configure The Active output Mode */
+		tmpccmr2 |= TIM_OCMode_Active;
 
+		/* Write to TIMx CCMR2 register */
+		TIM4->CCMR2 = tmpccmr2;
+	}
 
 	/*
 	for (i=0;i<3000*2000;i++)
@@ -348,21 +409,17 @@ void flux_blockedWrite(uint32_t word)
 	if (indexHappened)
 		indexOverflowCount++;
 
-#if 0
-	if (word==0 && flux_write_currentWord_encodeMode == FLUX_RAW)
-	{
-		flux_write_nextWord_extraPause+=flux_write_nextWord_cellLength*flux_write_nextWord_len;
-		debug_addedExtraPauses++;
-		return;
-	}
-#endif
-
 	//printf("mfm_blockedWrite %x\n",word);
-	flux_write_nextWord=word;
-	flux_write_busy=1;
-	while (flux_write_busy)
+	fluxWriteFifo[writeFifo_writePos].nextWord=word;
+	writeFifo_fillState++;
+	writeFifo_writePos++;
+	if (writeFifo_writePos >= 10)
+		writeFifo_writePos=0;
+
+	while (writeFifo_fillState > 8)
 	{
 		ACTIVE_WAITING
+		assert(indexOverflowCount < 2000);
 	}
 	//printf("mfm_blockedWrite %x finish\n",word);
 }
@@ -370,16 +427,18 @@ void flux_blockedWrite(uint32_t word)
 
 void flux_configureWrite(enum fluxEncodeMode mode, int wordLen)
 {
-	flux_write_nextWord_len=wordLen;
-	flux_write_nextWord_encodeMode=mode;
+	fluxWriteFifo[writeFifo_writePos].nextWord_len=wordLen;
+	fluxWriteFifo[writeFifo_writePos].nextWord_encodeMode=mode;
 
-	if (flux_write_nextWord_encodeMode==FLUX_MFM_ENCODE_ODD)
+	if (fluxWriteFifo[writeFifo_writePos].nextWord_encodeMode==FLUX_MFM_ENCODE_ODD)
 	{
-		flux_write_nextWord_mask=1<<(wordLen*2-1);
+		fluxWriteFifo[writeFifo_writePos].nextWord_mask=1<<(wordLen*2-1);
 		//printf("mfm_write_nextWord_mask %lx\n",mfm_write_nextWord_mask);
 	}
 	else
-		flux_write_nextWord_mask=1<<(wordLen-1);
+		fluxWriteFifo[writeFifo_writePos].nextWord_mask=1<<(wordLen-1);
+
+	fluxWriteFifo[writeFifo_writePos].changesConfig=1;
 }
 
 void flux_configureWriteCellLength(uint16_t cellLength)
@@ -387,10 +446,14 @@ void flux_configureWriteCellLength(uint16_t cellLength)
 	if (cellLength)
 	{
 		//printf("mfm_write_nextWord_cellLength %d\n",cellLength);
-		flux_write_nextWord_cellLength=cellLength;
+		fluxWriteFifo[writeFifo_writePos].nextWord_cellLength=cellLength;
 	}
 	else
-		flux_write_nextWord_cellLength=mfm_decodeCellLength;
+	{
+		fluxWriteFifo[writeFifo_writePos].nextWord_cellLength=mfm_decodeCellLength;
+	}
+
+	fluxWriteFifo[writeFifo_writePos].changesCellLength=1;
 }
 
 

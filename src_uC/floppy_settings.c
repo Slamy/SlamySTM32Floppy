@@ -116,7 +116,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 		geometry_heads=heads;
 
 	configuration_flags=flags;
-	if (fmt==FLOPPY_FORMAT_C64 && (configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX))
+	if (configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX)
 		floppy_indexSim_setEnableState(ENABLE);
 	else
 		floppy_indexSim_setEnableState(DISABLE);

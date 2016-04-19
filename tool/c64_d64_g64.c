@@ -181,8 +181,8 @@ unsigned int speed1541[]={
 
 //#define CELL_TICKS_PER_ROTATION 14000000 //360 RPM
 //#define CELL_TICKS_PER_ROTATION 13996112 //360,1 RPM
-//#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
-#define CELL_TICKS_PER_ROTATION 13961218 //361 RPM
+#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
+//#define CELL_TICKS_PER_ROTATION 13961218 //361 RPM
 //#define CELL_TICKS_PER_ROTATION 13922651 //362 RPM
 //#define CELL_TICKS_PER_ROTATION 13846153 //364 RPM
 //#define CELL_TICKS_PER_ROTATION 13621621 //370 RPM
@@ -250,6 +250,19 @@ int readImage_g64(const char *path)
 			else
 				resultingCellLength = imageCellLength;
 
+			//resultingCellLength = possibleCelllength;
+			//resultingCellLength = imageCellLength;
+
+
+#if 0
+			//Hack für Katakis Side 1 G64
+			if (cyl==70)
+			{
+				printf("Katakis Cyl 70 Hack !! **********************************\n");
+				resultingCellLength = imageCellLength;
+			}
+#endif
+
 			printf("%d %.1f %x %x TrackSize: %d   %x %x    %d %d  ->  %d\n",
 					cyl,
 					1.0f + (float)cyl/2.0f,
@@ -275,8 +288,8 @@ int readImage_g64(const char *path)
 			cylBufIndex+=3;
 
 
-
-			if (cyl==72)
+			/*
+			if (cyl==70)
 			{
 				for (int i=0; i< actualTrackSize; i++)
 				{
@@ -288,7 +301,7 @@ int readImage_g64(const char *path)
 				}
 				printf("\n");
 			}
-
+			*/
 
 			/*
 			for (int i=0; i< actualTrackSize; i++)

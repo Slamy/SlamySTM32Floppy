@@ -905,6 +905,7 @@ int main (int argc, char **argv)
 		configureController();
 
 		writeDisk(0,geometry_cylinders-1);
+		//writeDisk(30,geometry_cylinders-1);
 
 		printf("Image erfolgreich auf Diskette geschrieben!\n");
 	}
