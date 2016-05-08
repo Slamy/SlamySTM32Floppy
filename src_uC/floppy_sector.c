@@ -26,15 +26,15 @@ unsigned char lastSectorDataFormat=0;
 unsigned int verifyMode=0;
 
 
+
 char *formatStr[]=
 {
 	"UNKNOWN",
 	"Iso DD",
 	"Iso HD",
 	"Amiga DD",
-	"",
-	"",
-	""
+	"C64",
+	"Raw MFM"
 };
 
 enum floppyFormat floppy_discoverFloppyFormat(int cylinder, int head)
@@ -129,19 +129,23 @@ void printSectorReadState()
 
 int floppy_writeAndVerifyTrack(int cylinder, int head)
 {
-	unsigned int i=0;
 	int try=0;
 	int failCnt=0;
 	unsigned int abortVerify=0;
 
-	for (try=0; try < 3; try++)
+	for (try=0; try < 5; try++)
 	{
 		//printf("Write... %d %d\n",cylinder,head);
 #if 1
 		flux_write_setEnableState(ENABLE);
 		//printf("mfm_write enabled\n");
 
-		if (flux_mode == FLUX_MODE_MFM_AMIGA)
+		if (geometry_format & FLOPPY_FORMAT_RAW)
+		{
+			if (floppy_raw_writeTrack(cylinder,head))
+				return 2;
+		}
+		else if (flux_mode == FLUX_MODE_MFM_AMIGA)
 		{
 			if (floppy_amiga_writeTrack(cylinder,head))
 				return 2;
@@ -159,14 +163,14 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 
 		flux_write_setEnableState(DISABLE);
 #endif
-		printf("Verify...\n");
+		printf("Verify... %d %d %d\n", (int)geometry_format, (int)flux_mode, (int)geometry_sectors);
 		setupStepTimer(10000);
 
 		failCnt=0;
 		floppy_readTrackMachine_init();
-		printSectorReadState();
+		//printSectorReadState();
 
-		if (flux_mode == FLUX_MODE_GCR_C64)
+		if (geometry_format == FLOPPY_FORMAT_C64)
 			floppy_c64_setTrackSettings(floppy_c64_trackToExpect(cylinder));
 
 		verifyMode=1;
@@ -175,10 +179,11 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 		abortVerify=0;
 		while (sectorsRead < geometry_sectors && !abortVerify)
 		{
-
 			int readTrackMachineRet;
 
-			if (flux_mode == FLUX_MODE_MFM_AMIGA)
+			if (geometry_format & FLOPPY_FORMAT_RAW)
+				readTrackMachineRet=floppy_raw_readTrackMachine(cylinder,head);
+			else if (flux_mode == FLUX_MODE_MFM_AMIGA)
 				readTrackMachineRet=floppy_amiga_readTrackMachine(cylinder,head);
 			else if (flux_mode == FLUX_MODE_MFM_ISO)
 				readTrackMachineRet=floppy_iso_readTrackMachine(cylinder,head);
@@ -210,8 +215,8 @@ int floppy_writeAndVerifyTrack(int cylinder, int head)
 
 		if (sectorsRead == geometry_sectors)
 		{
-			printf("Finished verify:\n");
-			printSectorReadState();
+			//printf("Finished verify\n");
+			//printSectorReadState();
 			return 0;
 		}
 	}
@@ -272,16 +277,8 @@ int floppy_writeAndVerifyCylinder(unsigned int cylinder)
 	{
 		floppy_setHead(head);
 
-		if (geometry_format == FLOPPY_FORMAT_RAW_MFM)
-		{
-			if (floppy_raw_writeTrack(cylinder,head))
-				return 1;
-		}
-		else
-		{
-			if (floppy_writeAndVerifyTrack(cylinder,head))
-				return 1;
-		}
+		if (floppy_writeAndVerifyTrack(cylinder,head))
+			return 1;
 	}
 	//printf("Written and verified Cylinder!\n");
 

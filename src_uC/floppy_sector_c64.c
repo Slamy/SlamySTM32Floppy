@@ -39,7 +39,7 @@ int floppy_c64_writeTrack(uint32_t cylinder)
 	unsigned int i;
 	unsigned char track=floppy_c64_trackToExpect(cylinder);
 
-	printf("floppy_c64_writeTrack %d %d %d\n",cylinder,track,geometry_payloadBytesPerSector);
+	printf("floppy_c64_writeTrack %d %d %d\n",(int)cylinder,(int)track,(int)geometry_payloadBytesPerSector);
 
 	/*
 	printf("Sektors %d -> ",geometry_sectors);
@@ -195,7 +195,7 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 	case 11:
 		if (header_checksum==0)
 		{
-			printf("C64 SecHead %d %d %x %x\n",header_track,header_sector,header_id1,header_id2);
+			printf("C64 SecHead %d %d %x %x\n",(int)header_track,(int)header_sector,(unsigned int)header_id1,(unsigned int)header_id2);
 
 			if (!trackSectorDetected[header_sector])
 			{
@@ -260,10 +260,10 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 			if (sectorData[i]!=gcr_decodedByte)
 			{
 				printf("i==%d   %p %x != %x\n",
-						i,
+						(int)i,
 						&sectorData[i],
 						sectorData[i],
-						gcr_decodedByte);
+						(unsigned int)gcr_decodedByte);
 				return 3; //verify failed
 			}
 		}

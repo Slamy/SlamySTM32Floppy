@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "floppy_crc.h"
 
 unsigned short crc=0xFFFF;

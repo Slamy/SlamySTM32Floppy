@@ -617,7 +617,7 @@ int analyseImage(const char *path)
 		else if (!strcmp(fileTypeStr,".g64"))
 		{
 			printf("C64 G64 Disk Image\n");
-			format=FLOPPY_FORMAT_RAW_MFM;
+			format=FLOPPY_FORMAT_RAW_GCR;
 			return readImage_g64(path);
 		}
 #if 0
@@ -905,7 +905,10 @@ int main (int argc, char **argv)
 		configureController();
 
 		writeDisk(0,geometry_cylinders-1);
+		//writeDisk(68,geometry_cylinders-1);
 		//writeDisk(30,geometry_cylinders-1);
+		//writeDisk(34,34);
+
 
 		printf("Image erfolgreich auf Diskette geschrieben!\n");
 	}

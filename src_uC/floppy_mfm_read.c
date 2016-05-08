@@ -168,7 +168,6 @@ void mfm_blockedWaitForSyncWord(int expectNum)
 {
 	mfm_timeOut=400000;
 
-	//STM_EVAL_LEDOff(LED4);
 	while (mfm_inSync!=expectNum && mfm_timeOut)
 	{
 		ACTIVE_WAITING
@@ -176,14 +175,11 @@ void mfm_blockedWaitForSyncWord(int expectNum)
 	}
 
 	if (mfm_inSync!=expectNum)
-		mfm_errorHappened=1;
-
-	/*
-	else
 	{
-		STM_EVAL_LEDOn(LED4);
+		printf("mfm_inSync!=expectNum\n");
+		mfm_errorHappened=1;
 	}
-	*/
+
 }
 
 
@@ -199,7 +195,10 @@ void mfm_blockedRead()
 	}
 
 	if (!mfm_decodedByteValid)
+	{
+		printf("timeout...\n");
 		mfm_errorHappened=1;
+	}
 }
 
 

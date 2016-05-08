@@ -307,7 +307,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 
 					if (header_head != expectedHead)
 					{
-						printf("Head is wrong: %d %d\n",header_head, expectedHead);
+						printf("Head is wrong: %d %d\n",(int)header_head, (int)expectedHead);
 						header_cyl=0;
 						header_head=0;
 						header_sec=0;
@@ -330,10 +330,10 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 					//printf("%x %x\n",debug1,debug2);
 					printf("head chksum err\n");
 					printf("%x %x %x %x\n",
-							amiga_rawMfm_unshifted[0],
-							amiga_rawMfm_unshifted[1],
-							amiga_rawMfm_unshifted[2],
-							amiga_rawMfm_unshifted[3]);
+							(unsigned int)amiga_rawMfm_unshifted[0],
+							(unsigned int)amiga_rawMfm_unshifted[1],
+							(unsigned int)amiga_rawMfm_unshifted[2],
+							(unsigned int)amiga_rawMfm_unshifted[3]);
 					trackReadState=0;
 				}
 			}
@@ -378,7 +378,12 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 				{
 					if ((byteSwap(sectorData[i%128]) & AMIGA_MFM_MASK)!=((mfm_savedRawWord & AMIGA_MFM_MASK)))
 					{
-						printf("even %x %p %d %x %x\n",amiga_sectorHeader,&sectorData[i%128],i,sectorData[i%128],mfm_savedRawWord & AMIGA_MFM_MASK);
+						printf("even %x %p %d %x %x\n",
+								(unsigned int)amiga_sectorHeader,
+								&sectorData[i%128],
+								(int)i,
+								(unsigned int)sectorData[i%128],
+								(unsigned int)mfm_savedRawWord & AMIGA_MFM_MASK);
 						return 3; //verify failed
 					}
 				}
@@ -398,7 +403,12 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 				{
 					if (((byteSwap(sectorData[i%128]>>1) & AMIGA_MFM_MASK))!=(mfm_savedRawWord & AMIGA_MFM_MASK))
 					{
-						printf("odd %x %p %d %x %x\n",amiga_sectorHeader,&sectorData[i%128],i,sectorData[i%128],mfm_savedRawWord & AMIGA_MFM_MASK);
+						printf("odd %x %p %d %x %x\n",
+								(unsigned int)amiga_sectorHeader,
+								&sectorData[i%128],
+								(int)i,
+								(unsigned int)sectorData[i%128],
+								(unsigned int)mfm_savedRawWord & AMIGA_MFM_MASK);
 						return 3; //verify failed
 					}
 				}
@@ -444,14 +454,14 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 				}
 				else
 				{
-					printf("data chksum err %x\n",amiga_checksum);
+					printf("data chksum err %x\n",(unsigned int)amiga_checksum);
 					printf("%x %x %x %x %x %x\n",
-							amiga_rawMfm_unshifted[0],
-							amiga_rawMfm_unshifted[1],
-							amiga_rawMfm_unshifted[2],
-							amiga_rawMfm_unshifted[3],
-							amiga_rawMfm_unshifted[4],
-							amiga_rawMfm_unshifted[5]);
+							(unsigned int)amiga_rawMfm_unshifted[0],
+							(unsigned int)amiga_rawMfm_unshifted[1],
+							(unsigned int)amiga_rawMfm_unshifted[2],
+							(unsigned int)amiga_rawMfm_unshifted[3],
+							(unsigned int)amiga_rawMfm_unshifted[4],
+							(unsigned int)amiga_rawMfm_unshifted[5]);
 
 				}
 

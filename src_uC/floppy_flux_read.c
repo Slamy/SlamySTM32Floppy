@@ -22,33 +22,72 @@ volatile unsigned int diffCollector_Anz=0;
 volatile unsigned int diffCollectorEnabled=0;
 #endif
 
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+volatile unsigned int fluxReadDebugFifoValue[DEBUG_DIFF_FIFO_SIZE];
+volatile unsigned int fluxReadDebugFifo_writePos=0;
+volatile unsigned int fluxReadDebugFifo_enabled=1;
+#endif
+
+
 void TIM2_IRQHandler(void)
 {
 	static unsigned int lastTransitionTime=0;
 
 	//unsigned int intStart=TIM_GetCounter(TIM2);
 
-	unsigned int transitionTime=TIM_GetCapture3(TIM2);
-	diff=transitionTime - lastTransitionTime;
-	TIM_ClearITPendingBit(TIM2, TIM_IT_CC3);
+	STM_EVAL_LEDOn(LED3);
+
+	if (TIM_GetITStatus(TIM2, TIM_IT_CC3))
+	{
+		unsigned int transitionTime=TIM_GetCapture3(TIM2);
+		diff=transitionTime - lastTransitionTime;
+		TIM_ClearITPendingBit(TIM2, TIM_IT_CC3);
 
 #ifdef ACTIVATE_DIFFCOLLECTOR
-	if (diffCollectorEnabled && diffCollector_Anz < DIFF_COLLECTOR_SIZE)
-	{
-		diffCollector[diffCollector_Anz++]=diff;
-	}
+		if (diffCollectorEnabled && diffCollector_Anz < DIFF_COLLECTOR_SIZE)
+		{
+			diffCollector[diffCollector_Anz++]=diff;
+		}
 #endif
 
-	if (flux_mode==FLUX_MODE_MFM_AMIGA)
-		mfm_amiga_transitionHandler();
-	else if (flux_mode==FLUX_MODE_MFM_ISO)
-		mfm_iso_transitionHandler();
-	else if (flux_mode==FLUX_MODE_GCR_C64)
-		gcr_c64_transitionHandler();
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(diff);
+#endif
 
-	//printf("%u\n",diff);
+		if (flux_mode==FLUX_MODE_MFM_AMIGA)
+			mfm_amiga_transitionHandler();
+		else if (flux_mode==FLUX_MODE_MFM_ISO)
+			mfm_iso_transitionHandler();
+		else if (flux_mode==FLUX_MODE_GCR_C64)
+			gcr_c64_transitionHandler();
 
-	lastTransitionTime=transitionTime;
+		//printf("%u\n",diff);
+
+		lastTransitionTime=transitionTime;
+
+		//Der "5 Zellen keine Transition"-Timeout muss nach 5,5 Zellen nach der letzten Transition zuschlagen, damit
+		//sicher ist, dass 5 Zellen Pause war. Länger nicht, da die 6. Zelle eine 1 sein könnte.
+		TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+	}
+
+	if (TIM_GetITStatus(TIM2, TIM_IT_CC2))
+	{
+		TIM_ClearITPendingBit(TIM2, TIM_IT_CC2);
+		//printf("Capture\n");
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x10000);
+#endif
+
+		gcr_c64_5CellsNoTransitionHandler();
+
+		lastTransitionTime+=mfm_decodeCellLength*5;
+		TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+
+
+	}
+
+	STM_EVAL_LEDOff(LED3);
 }
 
 
@@ -56,7 +95,6 @@ void TIM2_IRQHandler(void)
 
 
 #ifndef CUNIT
-
 
 void flux_read_init()
 {
@@ -124,6 +162,16 @@ void flux_read_init()
 
 	TIM_ICInit(TIM2,&icInit);
 
+
+	TIM_OCInitTypeDef ocInit;
+
+	ocInit.TIM_OCMode=TIM_OCMode_Active;
+	ocInit.TIM_OutputState=TIM_OutputState_Enable;
+	ocInit.TIM_Pulse=0x2000;
+	ocInit.TIM_OCPolarity=TIM_OCPolarity_Low; //FIXME eigentlich TIM_OCPolarity_Low
+
+	TIM_OC2Init(TIM2,&ocInit);
+
 /*
 	   5. Enable the NVIC or the DMA to read the measured frequency.
 */
@@ -158,4 +206,58 @@ void flux_read_setEnableState(FunctionalState state)
 {
 	TIM2->CNT=0;
 	TIM_ITConfig(TIM2,TIM_IT_CC3,state);
+	//TIM_ITConfig(TIM2,TIM_IT_CC2,state);
 }
+
+
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+void printDebugDiffFifo()
+{
+
+	fluxReadDebugFifo_enabled=0;
+	printf("printDebugDiffFifo %d\n",fluxReadDebugFifo_writePos);
+	int i;
+	for (i=0;i<DEBUG_DIFF_FIFO_SIZE;i++)
+	{
+		unsigned int val = fluxReadDebugFifoValue[i];
+
+		printf("%03d ",i);
+
+		if (val==0x100000)
+		{
+			printf("before sync\n");
+		}
+		else if (val==0x200000)
+		{
+			printf("after sync\n");
+		}
+		else if (val==0x10000)
+		{
+			printf("%d ",val);
+			printf("00000\n");
+		}
+		else if (val & 0x20000)
+		{
+			printf("rawGcr %x\n",val&0xffff);
+		}
+		else if (val & 0x40000)
+		{
+			printf("compare %04x\n",val&0xffff);
+		}
+		else
+		{
+			printf("%d ",val);
+			while (val > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+			{
+				printf("0");
+				val-=mfm_decodeCellLength;
+			}
+			printf("1\n");
+		}
+	}
+
+}
+#endif
+
+

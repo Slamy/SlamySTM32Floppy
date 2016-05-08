@@ -14,10 +14,11 @@
 #include "stm32f4xx_rcc.h"
 #include "floppy_mfm.h"
 #include "floppy_control.h"
+#include "floppy_settings.h"
 
 volatile static uint32_t shiftedBits=0;
 volatile static uint32_t oneCounter=0;
-
+volatile uint8_t rawGcrSaved = 0;
 volatile static uint32_t rawGcr = 0;
 volatile static uint32_t decodedGcr = 0;
 volatile static uint32_t gcr_inSync = 0;
@@ -120,61 +121,109 @@ void gcr_c64_decode()
 	printf("\n");
 	 */
 
-	if (gcr_inSync && shiftedBits==5)
+	if (geometry_format==FLOPPY_FORMAT_RAW_GCR)
 	{
-		shiftedBits=0;
-		//printf("Decoded:%2x\n",decodedMFM);
-		decodedGcr=gcrDecodeTable[rawGcr & 0x1f];
-		rawGcr=0;
-		gcr_decodedNibbleValid=1;
+		if (gcr_inSync && shiftedBits==8)
+		{
+			shiftedBits=0;
+
+			rawGcrSaved=rawGcr;
+			rawGcr=0;
+			//printf("raw:%2x\n",rawGcrSaved);
+			gcr_decodedNibbleValid=1;
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+			flux_read_diffDebugFifoWrite(0x20000|rawGcrSaved);
+#endif
+		}
+	}
+	else
+	{
+		if (gcr_inSync && shiftedBits==5)
+		{
+			shiftedBits=0;
+			//printf("Decoded:%2x\n",decodedMFM);
+			decodedGcr=gcrDecodeTable[rawGcr & 0x1f];
+			rawGcr=0;
+			gcr_decodedNibbleValid=1;
+		}
 	}
 
 
+}
+
+void gcr_c64_5CellsNoTransitionHandler()
+{
+	int i;
+
+	for (i=0; i< 5;i++)
+	{
+		if (oneCounter >= 10) //Eigentlich sollten es 10 sein...
+		{
+			shiftedBits=0;
+			gcr_inSync=1;
+		}
+		oneCounter=0;
+
+		rawGcr<<=1;
+		shiftedBits++;
+		gcr_c64_decode();
+	}
 }
 
 void gcr_c64_transitionHandler()
 {
+	if (diff < 200)
+	{
+		gcr_inSync=0;
+		oneCounter=0;
+		STM_EVAL_LEDOn(LED4);
+		STM_EVAL_LEDOff(LED4);
+		return;
+	}
+
+	//if (diff > (mfm_decodeCellLength<<3))
 	if (diff > MAXIMUM_VALUE)
 	{
-
+		//ignoriere Zeiten die länger sind als 8 Zellen
+		return;
 	}
-	else
+
+	//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
+	//printf("diff:%d\n",diff);
+	while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 	{
-		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
-		//printf("diff:%d\n",diff);
-		while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		if (oneCounter >= 10) //Eigentlich sollten es 10 sein...
 		{
-			if (oneCounter >= 10) //Eigentlich sollten es 10 sein...
-			{
-				shiftedBits=0;
-				gcr_inSync=1;
-			}
-			oneCounter=0;
-
-			diff-=mfm_decodeCellLength;
-			rawGcr<<=1;
-			shiftedBits++;
-			gcr_c64_decode();
+			shiftedBits=0;
+			gcr_inSync=1;
 		}
+		oneCounter=0;
 
-		//Es bleibt eine 1 übrig.
+		diff-=mfm_decodeCellLength;
 		rawGcr<<=1;
-		rawGcr|=1;
 		shiftedBits++;
-		oneCounter++;
 		gcr_c64_decode();
-#ifdef ACTIVATE_DIFFCOLLECTOR
-		if (oneCounter >= 10)
-			diffCollectorEnabled=1;
-#endif
 	}
+
+	//Es bleibt eine 1 übrig.
+	rawGcr<<=1;
+	rawGcr|=1;
+	shiftedBits++;
+	oneCounter++;
+	gcr_c64_decode();
+#ifdef ACTIVATE_DIFFCOLLECTOR
+	if (oneCounter >= 10)
+		diffCollectorEnabled=1;
+#endif
+
 }
 
 void gcr_blockedWaitForSyncState()
 {
-	gcr_timeOut=400000;
+	gcr_timeOut=4000000;
 
-	//STM_EVAL_LEDOff(LED4);
+
 	gcr_inSync=0;
 	while (!gcr_inSync && gcr_timeOut)
 	{
@@ -183,14 +232,11 @@ void gcr_blockedWaitForSyncState()
 	}
 
 	if (!gcr_inSync)
-		mfm_errorHappened=1;
-
-	/*
-	else
 	{
-		STM_EVAL_LEDOn(LED4);
+		printf("no sync timeout...\n");
+		mfm_errorHappened=1;
 	}
-	*/
+
 }
 
 
@@ -209,6 +255,7 @@ void gcr_blockedRead()
 	if (!gcr_decodedNibbleValid || decodedGcr==0xff)
 	{
 		mfm_errorHappened=1;
+		printf("gcr_blockedReadRawByte timeout\n");
 		return;
 	}
 
@@ -225,6 +272,7 @@ void gcr_blockedRead()
 	if (!gcr_decodedNibbleValid || decodedGcr==0xff)
 	{
 		mfm_errorHappened=1;
+		printf("gcr_blockedReadRawByte timeout\n");
 		return;
 	}
 
@@ -232,8 +280,24 @@ void gcr_blockedRead()
 }
 
 
+void gcr_blockedReadRawByte()
+{
+	gcr_timeOut=30000;
 
+	//Das obere Nibble
+	gcr_decodedNibbleValid=0;
+	while (!gcr_decodedNibbleValid && gcr_timeOut)
+	{
+		ACTIVE_WAITING
+		gcr_timeOut--;
+	}
 
+	if (!gcr_decodedNibbleValid)
+	{
+		mfm_errorHappened=1;
+		printf("gcr_blockedReadRawByte timeout\n");
+	}
 
+}
 
 

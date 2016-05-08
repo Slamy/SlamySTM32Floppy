@@ -68,6 +68,7 @@ void mfm_blockedWaitForSyncWord(int expectNum);
 void flux_blockedWrite(uint32_t word);
 void flux_configureWrite(enum fluxEncodeMode mode, int wordLen);
 void flux_configureWriteCellLength(uint16_t cellLength);
+void flux_write_waitForUnderflow();
 
 
 //Wichtig für den Unit Test, um während des Wartens Inputs zu liefern.
@@ -86,19 +87,74 @@ extern unsigned int diff;
 void gcr_blockedWaitForSyncState();
 void gcr_blockedRead();
 void gcr_c64_transitionHandler();
+void gcr_blockedReadRawByte();
 extern volatile uint8_t gcr_decodedByte;
+extern volatile uint8_t rawGcrSaved;
 extern const unsigned char gcrEncodeTable[];
 extern const unsigned char gcrDecodeTable[];
+void gcr_c64_5CellsNoTransitionHandler();
+
+void mfm_amiga_transitionHandler();
+void mfm_iso_transitionHandler();
+void gcr_c64_transitionHandler();
+
+
 
 //#define ACTIVATE_DIFFCOLLECTOR
 
 #ifdef ACTIVATE_DIFFCOLLECTOR
 
-#define DIFF_COLLECTOR_SIZE 2000
+#define DIFF_COLLECTOR_SIZE 200
 
 extern volatile unsigned short diffCollector[DIFF_COLLECTOR_SIZE];
 extern volatile unsigned int diffCollector_Anz;
 extern volatile unsigned int diffCollectorEnabled;
+
+#endif
+
+
+#define ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+
+#define DEBUG_DIFF_FIFO_SIZE 100
+extern volatile unsigned int fluxReadDebugFifoValue[DEBUG_DIFF_FIFO_SIZE];
+extern volatile unsigned int fluxReadDebugFifo_writePos;
+extern volatile unsigned int fluxReadDebugFifo_enabled;
+
+static inline void flux_read_diffDebugFifoWrite(unsigned int val)
+{
+	if (fluxReadDebugFifo_enabled)
+	{
+		fluxReadDebugFifoValue[fluxReadDebugFifo_writePos++]=val;
+		if (fluxReadDebugFifo_writePos>=DEBUG_DIFF_FIFO_SIZE)
+			fluxReadDebugFifo_writePos=0;
+	}
+}
+void printDebugDiffFifo();
+
+#endif
+
+
+//#define ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+
+#define DEBUG_DIFF_FIFO_SIZE 100
+extern volatile unsigned int fluxWriteDebugFifoValue[DEBUG_DIFF_FIFO_SIZE];
+extern volatile unsigned int fluxWriteDebugFifo_writePos;
+extern volatile unsigned int fluxWriteDebugFifo_enabled;
+
+static inline void flux_write_diffDebugFifoWrite(unsigned int val)
+{
+	if (fluxWriteDebugFifo_enabled)
+	{
+		fluxWriteDebugFifoValue[fluxWriteDebugFifo_writePos++]=val;
+		if (fluxWriteDebugFifo_writePos>=DEBUG_DIFF_FIFO_SIZE)
+			fluxWriteDebugFifo_writePos=0;
+	}
+}
+
 
 #endif
 

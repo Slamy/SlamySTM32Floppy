@@ -20,7 +20,7 @@ volatile static uint16_t wasteTime=0;
 int indexDiodeState=0;
 
 
-#define RPM360_TIM5_TICKS	14005000	//Eine Umdrehung bei 360 RPM dauert 14000000 Zyklen
+#define RPM360_TIM5_TICKS	14000000	//Eine Umdrehung bei 360 RPM dauert 14000000 Zyklen
 #define RPM360_PULSE_LEN	38888		//In der Annahme, dass der Pulse ein 1° von der Disk ausmacht
 
 

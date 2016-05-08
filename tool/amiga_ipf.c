@@ -74,7 +74,7 @@ int readImage_ipf(const char *path)
 	{
 		int i, id = CAPSAddImage();
 
-		if (CAPSLockImage(id, path) == imgeOk)
+		if (CAPSLockImage(id, (char*)path) == imgeOk)
 		{
 			struct CapsImageInfo cii;
 

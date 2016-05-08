@@ -31,21 +31,21 @@ void SysTick_Handler(void)
 	/*
 	if ((systickCnt%10)==0)
 	{
-		STM_EVAL_LEDOn(LED3);
-		STM_EVAL_LEDOn(LED4);
+		//STM_EVAL_LEDOn(LED3);
+		//STM_EVAL_LEDOn(LED4);
 
-		STM_EVAL_LEDOff(LED5);
-		STM_EVAL_LEDOff(LED6);
+		//STM_EVAL_LEDOff(LED5);
+		//STM_EVAL_LEDOff(LED6);
 
 		//printf("%ld\n",TIM4->CNT);
 	}
 	else
 	{
-		STM_EVAL_LEDOff(LED3);
-		STM_EVAL_LEDOff(LED4);
+		//STM_EVAL_LEDOff(LED3);
+		//STM_EVAL_LEDOff(LED4);
 
-		STM_EVAL_LEDOn(LED5);
-		STM_EVAL_LEDOn(LED6);
+		//STM_EVAL_LEDOn(LED5);
+		//STM_EVAL_LEDOn(LED6);
 	}
 	*/
 
@@ -64,8 +64,8 @@ void led_init()
 	STM_EVAL_LEDInit(LED5);
 	STM_EVAL_LEDInit(LED6);
 
-	STM_EVAL_LEDOn(LED3);
-	STM_EVAL_LEDOn(LED4);
+	STM_EVAL_LEDOff(LED3);
+	STM_EVAL_LEDOff(LED4);
 	STM_EVAL_LEDOff(LED5);
 	STM_EVAL_LEDOff(LED6);
 }
@@ -114,8 +114,6 @@ int main()
 	gcr_c64_crossVerifyCodeTables();
 	//floppy_indexSim_setEnableState(ENABLE);
 	//floppy_selectDensity(DENSITY_DOUBLE);
-	//floppy_selectDrive(DRIVE_SELECT_A);
-	//floppy_setMotor(0,1);
 
 	//floppy_measureRpm();
 	/*
@@ -125,6 +123,82 @@ int main()
 	floppy_configureFormat(FLOPPY_FORMAT_ISO_HD,0,0,0);
 	floppy_writeAndVerifyCylinder(0);
 	*/
+
+#if 0
+	floppy_selectDrive(DRIVE_SELECT_A);
+	floppy_setMotor(0,1);
+	floppy_configureFormat(FLOPPY_FORMAT_RAW_GCR,0,0,0);
+
+	uint8_t *cylBufPtr=cylinderBuffer;
+
+	//Header für Raw Daten mit Density Infos
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=30;
+	cylBufPtr[cylinderSize++]=2;
+
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0b00010001;
+	cylBufPtr[cylinderSize++]=0b00001000;
+	cylBufPtr[cylinderSize++]=0b01000001;
+
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00001000;
+	cylBufPtr[cylinderSize++]=0b00010000;
+	cylBufPtr[cylinderSize++]=0b00010000;
+	cylBufPtr[cylinderSize++]=0b00010000;
+
+	cylBufPtr[cylinderSize++]=0b00001000;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00000100;
+
+	cylBufPtr[cylinderSize++]=0b00000100;
+	cylBufPtr[cylinderSize++]=0b00010001;
+	cylBufPtr[cylinderSize++]=0b00010001;
+	cylBufPtr[cylinderSize++]=0b00010001;
+	cylBufPtr[cylinderSize++]=0b00010001;
+
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+
+	//Header für Density Data
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=8;
+	cylBufPtr[cylinderSize++]=4; //markiert variable density data
+
+	//Variable Density Data
+
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=244>>8;
+	cylBufPtr[cylinderSize++]=244&0xff;
+
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0xff;
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=0;
+
+	//Kennzeichne das Ende
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=0;
+	cylBufPtr[cylinderSize++]=0;
+
+	geometry_sectors=1; //bei raw nehmen wir an, es gibt einen großen sector
+
+	floppy_writeAndVerifyCylinder(0);
+#endif
+
 	/*
 	floppy_debugTrackDataMachine(0,0);
 	floppy_debugTrackDataMachine(1,0);
@@ -295,7 +369,7 @@ int main()
 					floppy_configureFormat(usb_recv_data[7],usb_recv_data[8],usb_recv_data[9],usb_recv_data[10]);
 
 
-					printf("configuration_flags:%x\n",configuration_flags);
+					printf("configuration_flags:%lx\n",configuration_flags);
 					usb_send_data=usb_blockedGetTxBuf();
 					usb_send_data[0]='O';
 					usb_send_data[1]='K';
@@ -326,8 +400,8 @@ int main()
 					usb_releaseRecvBuffer();
 					assert(totalBytesToReceive < sizeof(cylinderBuffer));
 
-					assert (trkBufPtr >= &cylinderBuffer[0]);
-					assert (trkBufPtr < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
+					assert (trkBufPtr >= (unsigned char*)&cylinderBuffer[0]);
+					assert (trkBufPtr < (unsigned char*)&cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
 					while (totalBytesToReceive > 0)
 					{
@@ -354,8 +428,8 @@ int main()
 						usb_releaseRecvBuffer();
 					}
 
-					assert (trkBufPtr >= &cylinderBuffer[0]);
-					assert (trkBufPtr < &cylinderBuffer[CYLINDER_BUFFER_SIZE]);
+					assert (trkBufPtr >= (unsigned char*)&cylinderBuffer[0]);
+					assert (trkBufPtr < (unsigned char*)&cylinderBuffer[CYLINDER_BUFFER_SIZE]);
 
 					//Die CRC muss nun stimmen, also 0 sein, da sie Teil der Daten war.
 

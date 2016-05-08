@@ -47,16 +47,26 @@ static volatile int      flux_write_currentWord_active=0;
 
 static volatile uint32_t flux_write_lastBit=0;
 
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+volatile unsigned int fluxWriteDebugFifoValue[DEBUG_DIFF_FIFO_SIZE];
+volatile unsigned int fluxWriteDebugFifo_writePos=0;
+volatile unsigned int fluxWriteDebugFifo_enabled=1;
+#endif
 
-int pulseLenDefinesBreak=0;
 
-static inline void flux_Write_getNextWord()
+
+volatile int pulseLenDefinesBreak=0;
+
+static inline void flux_write_getNextWord()
 {
 	if (writeFifo_fillState)
 	{
 		flux_write_currentWord_bit			= 0;
 		flux_write_currentWord				= fluxWriteFifo[writeFifo_readPos].nextWord;
 
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+		flux_write_diffDebugFifoWrite(0x40000000 | flux_write_currentWord);
+#endif
 		/*
 		if (!flux_write_currentWord)
 		{
@@ -89,7 +99,12 @@ static inline void flux_Write_getNextWord()
 			writeFifo_readPos=0;
 	}
 	else
+	{
 		flux_write_currentWord_active=0;
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+		flux_write_diffDebugFifoWrite(0x20000000 );
+#endif
+	}
 }
 
 uint16_t flux_write_calcNextPauseLen(void)
@@ -111,8 +126,9 @@ uint16_t flux_write_calcNextPauseLen(void)
 
 	if (!flux_write_currentWord_active)
 	{
-		flux_Write_getNextWord();
-		return 200;
+		flux_write_getNextWord();
+		pulseLenDefinesBreak=1;
+		return 1000;
 	}
 
 	//printf("B\n");
@@ -124,9 +140,9 @@ uint16_t flux_write_calcNextPauseLen(void)
 		//printf("ret %d\n",flux_write_currentWord_cellLength*flux_write_currentWord_len);
 		pauseLenRet=flux_write_currentWord_cellLength*flux_write_currentWord_len + pauseLenAccu;
 		pauseLenAccu=0;
-		flux_Write_getNextWord();
+		flux_write_getNextWord();
 		pulseLenDefinesBreak=1;
-
+		//STM_EVAL_LEDToggle(LED4);
 		return pauseLenRet;
 	}
 
@@ -184,13 +200,14 @@ uint16_t flux_write_calcNextPauseLen(void)
 
 		if (flux_write_currentWord_bit >= flux_write_currentWord_len)
 		{
-			flux_Write_getNextWord();
+			flux_write_getNextWord();
 
+			//STM_EVAL_LEDToggle(LED3);
 			if (flux_write_currentWord_encodeMode == FLUX_RAW && flux_write_currentWord==0)
 			{
-				pauseLenRet=flux_write_currentWord_cellLength*flux_write_currentWord_len + pauseLenAccu;
+				pauseLenRet=flux_write_currentWord_cellLength * flux_write_currentWord_len + pauseLenAccu;
 				pauseLenAccu=0;
-				flux_Write_getNextWord();
+				flux_write_getNextWord();
 				pulseLenDefinesBreak=1;
 
 				return pauseLenRet;
@@ -210,8 +227,21 @@ void TIM4_IRQHandler(void)
 {
 	//printf("I\n");
 
-	uint16_t pulseLen=flux_write_calcNextPauseLen();
+	STM_EVAL_LEDOn(LED5);
 
+	uint16_t tmpccmr2 = 0;
+	tmpccmr2 = TIM4->CCMR2;
+
+	/* Reset the OC1M Bits */
+	tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
+
+	/* Configure The Forced output Mode */
+	tmpccmr2 |= TIM_ForcedAction_InActive;
+
+	/* Write to TIMx CCMR2 register */
+	TIM4->CCMR2 = tmpccmr2;
+
+	uint16_t pulseLen=flux_write_calcNextPauseLen();
 	assert (pulseLen > 100);
 
 	//pulseLen*=4;
@@ -219,6 +249,13 @@ void TIM4_IRQHandler(void)
 	TIM_ClearITPendingBit(TIM4, TIM_IT_CC3);
 #ifdef CUNIT
 	addTransitionTime(pulseLen);
+#endif
+
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+	if (pulseLenDefinesBreak)
+		flux_write_diffDebugFifoWrite(0x80000000 | pulseLen);
+	else
+		flux_write_diffDebugFifoWrite(pulseLen);
 #endif
 
 	lastCompare+=pulseLen;
@@ -250,20 +287,22 @@ void TIM4_IRQHandler(void)
 	//TIM_ForcedOC3Config(TIM4,TIM_ForcedAction_InActive);
 
 	/* Get the current value of the output compare mode */
-	uint16_t tmpccmr2 = 0;
-	tmpccmr2 = TIM4->CCMR2;
-
-	/* Reset the OC1M Bits */
-	tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
-
-	/* Configure The Forced output Mode */
-	tmpccmr2 |= TIM_ForcedAction_InActive;
-
-	/* Write to TIMx CCMR2 register */
-	TIM4->CCMR2 = tmpccmr2;
 
 
-	if (!pulseLenDefinesBreak)
+
+	if (pulseLenDefinesBreak)
+	//if (0)
+	{
+		/* Reset the OC1M Bits */
+		tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
+
+		/* Configure The Active output Mode */
+		tmpccmr2 |= TIM_OCMode_Inactive;
+
+		/* Write to TIMx CCMR2 register */
+		TIM4->CCMR2 = tmpccmr2;
+	}
+	else
 	{
 		/* Reset the OC1M Bits */
 		tmpccmr2 &= (uint16_t)~TIM_CCMR2_OC3M;
@@ -292,7 +331,7 @@ void TIM4_IRQHandler(void)
 	}
 	printf("A\n");
 	*/
-
+	STM_EVAL_LEDOff(LED5);
 }
 
 
@@ -424,6 +463,13 @@ void flux_blockedWrite(uint32_t word)
 	//printf("mfm_blockedWrite %x finish\n",word);
 }
 
+void flux_write_waitForUnderflow()
+{
+	while (writeFifo_fillState > 0)
+	{
+		ACTIVE_WAITING
+	}
+}
 
 void flux_configureWrite(enum fluxEncodeMode mode, int wordLen)
 {
@@ -456,4 +502,46 @@ void flux_configureWriteCellLength(uint16_t cellLength)
 	fluxWriteFifo[writeFifo_writePos].changesCellLength=1;
 }
 
+
+
+
+#ifdef ACTIVATE_DEBUG_FLUX_WRITE_FIFO
+void printFluxWriteDebugFifo()
+{
+	fluxWriteDebugFifo_enabled=0;
+	printf("printFluxWriteDebugFifo %d\n",fluxWriteDebugFifo_writePos);
+	int i;
+	for (i=0;i<DEBUG_DIFF_FIFO_SIZE;i++)
+	{
+		unsigned int val = fluxWriteDebugFifoValue[i];
+
+		printf("%03d ",i);
+
+		if (val & 0x20000000)
+		{
+			printf("inact\n");
+		}
+		else if (val & 0x40000000)
+		{
+			printf("cur %04x\n",val&0xffff);
+		}
+		else
+		{
+			if (val & 0x80000000)
+			{
+				printf("break ");
+				val&=0x7fffffff;
+			}
+
+			printf("%d ",val);
+			while (val > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+			{
+				printf("0");
+				val-=mfm_decodeCellLength;
+			}
+			printf("1\n");
+		}
+	}
+}
+#endif
 

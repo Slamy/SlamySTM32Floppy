@@ -23,7 +23,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head);
 void floppy_iso_setGaps();
 
 int floppy_raw_writeTrack(int cylinder, int head);
-
+int floppy_raw_readTrackMachine();
 
 void floppy_c64_setTrackSettings(int trk);
 int floppy_c64_readTrackMachine(int expectedCyl);

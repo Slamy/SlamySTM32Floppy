@@ -13,6 +13,7 @@ extern struct TIM4_stub* TIM3;
 extern struct TIM4_stub* TIM4;
 
 #define TIM_IT_CC3 0
+#define TIM_IT_CC2 0
 #define TIM_FLAG_CC1 0
 #define TIM_ForcedAction_InActive          ((uint16_t)0x0040)
 

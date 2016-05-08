@@ -10,6 +10,7 @@
 #include "floppy_settings.h"
 #include "floppy_control.h"
 #include "floppy_sector.h"
+#include "floppy_indexSim.h"
 
 
 uint32_t geometry_payloadBytesPerSector=512;
@@ -103,6 +104,16 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			floppy_c64_setTrackSettings(0);
 			floppy_selectDensity(DENSITY_DOUBLE);
 
+			break;
+		case FLOPPY_FORMAT_RAW_GCR:
+			flux_mode = FLUX_MODE_GCR_C64;
+			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+
+			geometry_cylinders=80;
+			geometry_heads=2;
+			geometry_sectors=1;
+			geometry_payloadBytesPerSector=512;
+			floppy_selectDensity(DENSITY_DOUBLE);
 			break;
 
 		default:

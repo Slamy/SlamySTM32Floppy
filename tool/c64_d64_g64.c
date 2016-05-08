@@ -181,9 +181,9 @@ unsigned int speed1541[]={
 
 //#define CELL_TICKS_PER_ROTATION 14000000 //360 RPM
 //#define CELL_TICKS_PER_ROTATION 13996112 //360,1 RPM
-#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
+//#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
 //#define CELL_TICKS_PER_ROTATION 13961218 //361 RPM
-//#define CELL_TICKS_PER_ROTATION 13922651 //362 RPM
+#define CELL_TICKS_PER_ROTATION 13922651 //362 RPM
 //#define CELL_TICKS_PER_ROTATION 13846153 //364 RPM
 //#define CELL_TICKS_PER_ROTATION 13621621 //370 RPM
 
@@ -288,20 +288,27 @@ int readImage_g64(const char *path)
 			cylBufIndex+=3;
 
 
+
+			//if (cyl==70)
+			//if (cyl==68)
+			//if (cyl==34)
 			/*
-			if (cyl==70)
+			if (cyl==48)
 			{
+				printf("Celllen is %d\n",resultingCellLength);
 				for (int i=0; i< actualTrackSize; i++)
 				{
-					printf("%02x ",trackData[2+i]);
 
-					if ((i%16)==15)
-						printf("\n");
+					if ((i%16)==0)
+						printf("\n %06d ",i);
+
+					printf("%02x ",trackData[2+i]);
 
 				}
 				printf("\n");
 			}
 			*/
+
 
 			/*
 			for (int i=0; i< actualTrackSize; i++)
@@ -344,6 +351,7 @@ int readImage_g64(const char *path)
 			cylBufIndex+=3;
 
 			image_cylinderSize[cyl]=cylBufIndex;
+			geometry_sectorsPerCylinder[cyl]=1; //bei raw nehmen wir an, es gibt einen großen sector
 
 			if (cyl >= geometry_cylinders)
 				geometry_cylinders=cyl + 1;
