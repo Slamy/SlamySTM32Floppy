@@ -21,6 +21,16 @@ enum floppyFormat
 	FLOPPY_FORMAT_RAW_GCR=0x12
 };
 
+enum floppyMedium
+{
+	FLOPPY_MEDIUM_UNKNOWN,
+	FLOPPY_MEDIUM_3_5_INCH,
+	FLOPPY_MEDIUM_5_1_4_INCH
+};
+
+extern enum floppyMedium preferedFloppyMedium;
+
+
 
 #define MAX_SECTORS_PER_TRACK 18
 #define MAX_HEADS 2

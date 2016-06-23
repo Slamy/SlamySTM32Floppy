@@ -265,6 +265,7 @@ int floppy_iso_writeTrack(int cylinder, int head)
 		else
 			flux_blockedWrite(geometry_iso_fillerByte);
 
+		flux_write_waitForUnderflow();
 		floppy_setWriteGate(0);
 
 		//zum auslaufen

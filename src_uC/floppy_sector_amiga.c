@@ -174,6 +174,7 @@ int floppy_amiga_writeTrack(uint32_t cylinder, uint32_t head)
 	for (i=0;i<2;i++)
 		flux_blockedWrite(0);
 
+	flux_write_waitForUnderflow();
 	floppy_setWriteGate(0);
 
 

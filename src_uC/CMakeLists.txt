@@ -39,6 +39,7 @@ add_executable (slamyflop
 	floppy_sector_amiga.c
 	floppy_sector_c64.c
 	floppy_sector_raw.c
+	floppy_sector_raw_syncFinder.c
 	floppy_control.c
 	floppy_settings.c
 	libcsupport.c

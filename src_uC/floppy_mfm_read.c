@@ -27,10 +27,6 @@ int indexOverflowCount=0;
 static unsigned int mfm_timeOut=0;
 unsigned int mfm_errorHappened=0;
 
-//#define SYNC_WORD 0x5224
-#define SYNC_WORD_ISO 0x4489 //broken A1
-#define SYNC_WORD_AMIGA 0x44894489ul //broken A1 *2
-
 
 void mfm_iso_decode()
 {
@@ -47,6 +43,10 @@ void mfm_iso_decode()
 		mfm_decodedByte=decodedMFM;
 		mfm_savedRawWord=rawMFM;
 		mfm_decodedByteValid=1;
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x20000 | mfm_savedRawWord);
+#endif
 	}
 
 	if ((rawMFM & 0xffff)==SYNC_WORD_ISO) //IAM sync word is broken A1.

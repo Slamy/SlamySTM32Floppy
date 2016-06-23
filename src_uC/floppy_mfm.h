@@ -18,6 +18,9 @@
 
 #define AMIGA_MFM_MASK 0x55555555
 
+#define SYNC_WORD_ISO 0x4489 //broken A1
+#define SYNC_WORD_AMIGA 0x44894489ul //broken A1 *2
+
 
 enum fluxMode
 {

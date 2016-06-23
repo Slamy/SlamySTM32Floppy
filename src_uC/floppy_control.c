@@ -13,6 +13,10 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_mfm.h"
+#include "assert.h"
+
+enum DriveSelect readyDrives;
+enum DriveSelect selectedDrive;
 
 
 /*
@@ -144,8 +148,32 @@ void floppy_selectDensity(enum Density val)
 	}
 }
 
+void floppy_selectFittingDrive()
+{
+	//nimm das Laufwerk, das am ehesten passen würde
+
+	//haben wir nur eines dran? dann nimm dieses!
+	if (readyDrives != (DRIVE_SELECT_A | DRIVE_SELECT_B))
+	{
+		floppy_selectDrive(readyDrives);
+		return;
+	}
+
+	//wenn nicht, gibt es Empfehlungen für eine Diskettengröße ?
+
+	if (preferedFloppyMedium == FLOPPY_MEDIUM_3_5_INCH)
+		floppy_selectDrive(DRIVE_SELECT_A);
+	else if (preferedFloppyMedium == FLOPPY_MEDIUM_5_1_4_INCH)
+		floppy_selectDrive(DRIVE_SELECT_B);
+	else
+		assert(0);
+
+}
+
 void floppy_selectDrive(enum DriveSelect sel)
 {
+	selectedDrive=sel;
+
 	switch (sel)
 	{
 		case DRIVE_SELECT_NONE:
@@ -160,20 +188,73 @@ void floppy_selectDrive(enum DriveSelect sel)
 			GPIOB->BSRRL=GPIO_Pin_0; //set /DRVSA to high -> deselect drive A
 			GPIOA->BSRRH=GPIO_Pin_15; //set /DRVSB to low -> select drive B
 			break;
+		default:
+			assert(0);
+			break;
 	}
 }
 
-void floppy_setMotor(int drive, int val)
-{
-	if (drive)
-	{
-		//B
-		if (val)
-		{
 
+void floppy_control_senseDrives()
+{
+	readyDrives=0;
+
+	floppy_selectDrive(DRIVE_SELECT_A);
+	if (!floppy_stepToCylinder00())
+	{
+		readyDrives|=DRIVE_SELECT_A;
+		printf("Drive A Ready\n");
+	}
+
+	floppy_selectDrive(DRIVE_SELECT_B);
+	if (!floppy_stepToCylinder00())
+	{
+		readyDrives|=DRIVE_SELECT_B;
+		printf("Drive B Ready\n");
+	}
+
+	floppy_selectDrive(DRIVE_SELECT_NONE);
+}
+
+void floppy_setMotorSelectedDrive(int val)
+{
+	if (val)
+	{
+		assert (selectedDrive != DRIVE_SELECT_NONE);
+		if (selectedDrive == DRIVE_SELECT_A)
+		{
+			GPIOB->BSRRL=GPIO_Pin_1; //set /MOTEB to high -> deactivate motor of drive B
+			GPIOA->BSRRH=GPIO_Pin_8; //set /MOTEA to low -> activate motor of drive A
+			printf("Enable Motor of Drive A\n");
 		}
+		else if (selectedDrive == DRIVE_SELECT_B)
+		{
+			GPIOA->BSRRL=GPIO_Pin_8; //set /MOTEA to high -> deactivate motor of drive A
+			GPIOB->BSRRH=GPIO_Pin_1; //set /MOTEB to low -> activate motor of drive B
+			printf("Enable Motor of Drive B\n");
+		}
+		else
+			assert(0);
+
 	}
 	else
+	{
+		GPIOB->BSRRL=GPIO_Pin_1; //set /MOTEB to high -> deactivate motor of drive B
+		GPIOA->BSRRL=GPIO_Pin_8; //set /MOTEA to high -> deactivate motor of drive A
+	}
+}
+
+void floppy_setMotor(enum DriveSelect drive, int val)
+{
+	if (drive == DRIVE_SELECT_B)
+	{
+		//B
+		if (!val)
+			GPIOB->BSRRL=GPIO_Pin_1; //set /MOTEB to high -> deactivate motor of drive B
+		else
+			GPIOB->BSRRH=GPIO_Pin_1; //set /MOTEB to low -> activate motor of drive B
+	}
+	else if (drive == DRIVE_SELECT_A)
 	{
 		//A
 		if (!val)
@@ -181,6 +262,8 @@ void floppy_setMotor(int drive, int val)
 		else
 			GPIOA->BSRRH=GPIO_Pin_8; //set /MOTEA to low -> activate motor of drive A
 	}
+	else
+		assert(0);
 }
 
 void floppy_setHead(int head)
@@ -210,7 +293,7 @@ void setupStepTimer(int waitTime)
 
 static unsigned int currentTrack=0;
 
-void floppy_stepToCylinder00()
+int floppy_stepToCylinder00()
 {
 	int trys=0;
 
@@ -231,14 +314,15 @@ void floppy_stepToCylinder00()
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
 		trys++;
 
-		if (trys > 120)
+		if (trys > 85)
 		{
 			printf("floppy_stepToTrack00() TIMEOUT\n");
-			return;
+			return 1;
 		}
 	}
 
 	currentTrack=0;
+	return 0;
 }
 
 void floppy_stepToCylinder(unsigned int wantedCyl)

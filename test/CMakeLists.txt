@@ -34,4 +34,11 @@ target_include_directories (slamyfloptest PUBLIC
 
 add_executable (rawVerifyTest
 	rawVerifyTest.c
+	../src_uC/floppy_sector_raw_syncFinder.c
 )
+
+target_include_directories (rawVerifyTest PUBLIC
+	.
+	../src_uC
+	stubs
+	)

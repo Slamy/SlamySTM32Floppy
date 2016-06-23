@@ -13,6 +13,8 @@
 #include "floppy_indexSim.h"
 
 
+enum floppyMedium preferedFloppyMedium=FLOPPY_MEDIUM_UNKNOWN;
+
 uint32_t geometry_payloadBytesPerSector=512;
 uint32_t geometry_cylinders=0;
 uint32_t geometry_heads=0;
@@ -43,7 +45,6 @@ unsigned char geometry_iso_fillerByte;
 unsigned char geometry_c64_gap_size;
 
 
-
 void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uint32_t flags)
 {
 	geometry_format=fmt;
@@ -59,6 +60,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			geometry_sectors=18;
 			geometry_payloadBytesPerSector=512;
 			floppy_selectDensity(DENSITY_HIGH);
+			preferedFloppyMedium=FLOPPY_MEDIUM_3_5_INCH;
 			break;
 		case FLOPPY_FORMAT_ISO_DD:
 			flux_mode = FLUX_MODE_MFM_ISO;
@@ -69,6 +71,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			geometry_sectors=9;
 			geometry_payloadBytesPerSector=512;
 			floppy_selectDensity(DENSITY_DOUBLE);
+			preferedFloppyMedium=FLOPPY_MEDIUM_3_5_INCH;
 			break;
 
 		case FLOPPY_FORMAT_AMIGA_DD:
@@ -80,6 +83,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			geometry_sectors=11;
 			geometry_payloadBytesPerSector=512;
 			floppy_selectDensity(DENSITY_DOUBLE);
+			preferedFloppyMedium=FLOPPY_MEDIUM_3_5_INCH;
 			break;
 		case FLOPPY_FORMAT_RAW_MFM:
 			flux_mode = FLUX_MODE_MFM_ISO;
@@ -90,6 +94,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			geometry_sectors=11;
 			geometry_payloadBytesPerSector=512;
 			floppy_selectDensity(DENSITY_DOUBLE);
+			preferedFloppyMedium=FLOPPY_MEDIUM_3_5_INCH;
 			break;
 
 		case FLOPPY_FORMAT_C64:
@@ -103,6 +108,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 
 			floppy_c64_setTrackSettings(0);
 			floppy_selectDensity(DENSITY_DOUBLE);
+			preferedFloppyMedium=FLOPPY_MEDIUM_5_1_4_INCH;
 
 			break;
 		case FLOPPY_FORMAT_RAW_GCR:
@@ -114,6 +120,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			geometry_sectors=1;
 			geometry_payloadBytesPerSector=512;
 			floppy_selectDensity(DENSITY_DOUBLE);
+			preferedFloppyMedium=FLOPPY_MEDIUM_5_1_4_INCH;
 			break;
 
 		default:
@@ -147,4 +154,6 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			(int)geometry_heads,
 			(int)geometry_sectors);
 }
+
+
 

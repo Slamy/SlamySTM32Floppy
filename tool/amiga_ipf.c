@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <caps/capsimage.h>
+#include <math.h>
 
 #include "slamySTM32Floppy.h"
 
@@ -146,6 +147,23 @@ int readImage_ipf(const char *path)
 								trackInf.timelen);
 
 
+
+						int timeDataNeeded=0;
+						int possibleCelllength=0;
+
+						if (trackInf.type == ctitVar)
+							timeDataNeeded=1;
+						else
+						{
+							possibleCelllength=floor( ((double)CELL_TICKS_PER_ROTATION_300) / ((double)trackInf.tracksize[0] * 8.0));
+							printf("possibleCelllength: %d %d\n",
+									possibleCelllength,
+									MFM_BITTIME_DD/2);
+
+							if (possibleCelllength < MFM_BITTIME_DD/2)
+								timeDataNeeded=1;
+						}
+
 						if (trackInf.type == ctitAuto || trackInf.type == ctitNoise || trackInf.type == ctitVar)
 						{
 							assert(trackInf.trackcnt < 2);
@@ -161,7 +179,7 @@ int readImage_ipf(const char *path)
 
 								image_cylinderBuf[cylinder][cylBufIndex]=trackInf.tracksize[0]>>8;
 								image_cylinderBuf[cylinder][cylBufIndex+1]=trackInf.tracksize[0]&0xff;
-								image_cylinderBuf[cylinder][cylBufIndex+2]=head | (trackInf.type == ctitVar ? 2 : 0 );
+								image_cylinderBuf[cylinder][cylBufIndex+2]=head | (timeDataNeeded ? 2 : 0 );
 
 								memcpy(&image_cylinderBuf[cylinder][cylBufIndex+3],&trackInf.trackdata[0][0],trackInf.tracksize[0]);
 								cylBufIndex+= 3 + trackInf.tracksize[0];
@@ -187,7 +205,46 @@ int readImage_ipf(const char *path)
 							image_cylinderBuf[cylinder][cylBufIndex+2]=head | 4; //markiert variable density data
 							cylBufIndex+= 3 + anzBytes;
 						}
+						else if (timeDataNeeded)
+						{
+							//normalerweise ist das hier gar nicht notwendig. Aber Turrican 1 und 2 verwenden Long Tracks. Die Bit Rate muss eventuell erhöht werden.
 
+
+							//Header für Density Data
+							image_cylinderBuf[cylinder][cylBufIndex+0]=0;
+							image_cylinderBuf[cylinder][cylBufIndex+1]=8;
+							image_cylinderBuf[cylinder][cylBufIndex+2]=head | 4; //markiert variable density data
+							cylBufIndex+=3;
+
+							//Variable Density Data
+
+							image_cylinderBuf[cylinder][cylBufIndex+0]=0;
+							image_cylinderBuf[cylinder][cylBufIndex+1]=0;
+							image_cylinderBuf[cylinder][cylBufIndex+2]=possibleCelllength>>8;
+							image_cylinderBuf[cylinder][cylBufIndex+3]=possibleCelllength&0xff;
+							cylBufIndex+=4;
+
+							image_cylinderBuf[cylinder][cylBufIndex+0]=0xff;
+							image_cylinderBuf[cylinder][cylBufIndex+1]=0xff;
+							image_cylinderBuf[cylinder][cylBufIndex+2]=0;
+							image_cylinderBuf[cylinder][cylBufIndex+3]=0;
+							cylBufIndex+=4;
+
+						}
+
+						if (cylinder==18)
+						{
+							for (int i=0; i< trackInf.tracksize[0]; i++)
+							{
+
+								if ((i%16)==0)
+									printf("\n %06d ",i);
+
+								printf("%02x ",trackInf.trackdata[0][i]);
+
+							}
+							printf("\n");
+						}
 
 						/*
 						if (trackInf.trackdata[0])
@@ -234,6 +291,8 @@ int readImage_ipf(const char *path)
 				cylBufIndex+= 3;
 
 				image_cylinderSize[cylinder]=cylBufIndex;
+				geometry_sectorsPerCylinder[cylinder]=1; //bei raw nehmen wir an, es gibt einen großen sector
+
 				//printf("image_rawCylinderSize[cylinder] %d\n",image_cylinderSize[cylinder]);
 			}
 

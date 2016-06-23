@@ -9,7 +9,7 @@
 #include "floppy_control.h"
 #include "floppy_settings.h"
 #include "assert.h"
-
+#include "floppy_sector_raw.h"
 
 #define RAWBLOCK_TYPE_HEAD 1
 #define RAWBLOCK_TYPE_HAS_VARIABLE_DENSITY 2
@@ -64,7 +64,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		int blocktype=cylBufPtr[2];
 
-		//printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
+		printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
 
 		if ((blocktype & RAWBLOCK_TYPE_HEAD) == head)
 		{
@@ -75,14 +75,14 @@ int floppy_raw_writeTrack(int cylinder, int head)
 			{
 				timeData=cylBufPtr+3;
 				timeDataSize=blocklen;
-				//printf("timeData starts\n");
+				printf("timeData starts\n");
 			}
 			else
 			{
 
 				trackData=cylBufPtr+3;
 				trackDataSize=blocklen;
-				//printf("Trackdata starts with %x\n",*trackData);
+				printf("Trackdata starts with %x\n",*trackData);
 			}
 		}
 
@@ -127,7 +127,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 		flux_configureWrite(FLUX_RAW,8);
 		flux_configureWriteCellLength(timeDataCellLength);
 		mfm_decodeCellLength = timeDataCellLength;
-		//printf("cellLength %d\n",timeDataCellLength);
+		printf("cellLength %d\n",timeDataCellLength);
 	}
 	else
 	{
@@ -424,142 +424,8 @@ int floppy_raw_writeTrack(int cylinder, int head)
 }
 
 
-#define VERIFY_PARTS_ANZ 23
-uint8_t *verifySectorData;
-int verifySectorDataBytesLeft;
-int verifySectorDataShift=0;
-int verifySectorDataNextByteMask=0;
-
-struct
+int floppy_raw_gcr_readTrackMachine()
 {
-	uint8_t *ptr;
-	int len;
-	int dataShift;
-	int nextByteMask;
-} verifyablePart[VERIFY_PARTS_ANZ];
-int verifyablePartI=0;
-
-void floppy_raw_getNextVerifyablePart()
-{
-	verifySectorData=verifyablePart[verifyablePartI].ptr;
-	verifySectorDataBytesLeft=verifyablePart[verifyablePartI].len;
-	verifySectorDataShift=verifyablePart[verifyablePartI].dataShift;
-	verifySectorDataNextByteMask=verifyablePart[verifyablePartI].nextByteMask;
-	verifyablePartI++;
-}
-
-void floppy_raw_find1541Sync()
-{
-	//wir suchen nach dem Muster * 11111 11111 0
-	int i,j;
-	uint32_t wordAccu=0;
-	uint32_t byteAccu=0;
-	int inSync=0;
-
-	verifyablePartI=0;
-
-	for (i=0; i < trackDataSize; i++)
-	{
-
-		byteAccu = trackData[i];
-		if (inSync)
-		{
-			/*
-			if (byteAccu==0)
-			{
-				inSync=0;
-				verifyablePart[verifyablePartI].len=&trackData[i]-verifyablePart[verifyablePartI].ptr-1;
-				printf("Sync Mark abgeschlossen: %d\n",verifyablePart[verifyablePartI].len);
-				verifyablePartI++;
-			}
-			*/
-
-			for (j=0; j < 8; j++)
-			{
-				wordAccu<<=1;
-
-				if (byteAccu & 0x80)
-					wordAccu|=1;
-
-				byteAccu<<=1;
-
-				//Wenn wir im Sync sind, dürfen keine 3 Null Bits aufeinander folgen!
-
-				if ((wordAccu & 0b111)==0)
-				{
-					inSync=0;
-					verifyablePart[verifyablePartI].len=&trackData[i]-verifyablePart[verifyablePartI].ptr-1;
-					printf("Sync loss: %d\n",verifyablePart[verifyablePartI].len);
-					verifyablePartI++;
-					assert(verifyablePartI<VERIFY_PARTS_ANZ);
-					break;
-				}
-			}
-		}
-		else
-		{
-			for (j=0; j < 8; j++)
-			{
-				wordAccu<<=1;
-
-				if (byteAccu & 0x80)
-					wordAccu|=1;
-
-				byteAccu<<=1;
-
-				//Wir suchen nach einem Sync Mark. Das sind >10 gesetzte Bits von einem 0 Bit.
-				if ((wordAccu & 0b11111111111)==0b11111111110)
-				{
-
-					verifySectorDataShift=j;
-					verifySectorDataNextByteMask=0xff >> verifySectorDataShift;
-
-					printf("Sync: %d %x %x %x\n",i,trackData[i],verifySectorDataNextByteMask,verifySectorDataShift);
-					inSync=1;
-
-					verifyablePart[verifyablePartI].ptr=&trackData[i];
-					verifyablePart[verifyablePartI].dataShift=verifySectorDataShift;
-					verifyablePart[verifyablePartI].nextByteMask=verifySectorDataNextByteMask;
-				}
-			}
-		}
-	}
-
-	if (inSync)
-	{
-		verifyablePart[verifyablePartI].len=&trackData[i]-verifyablePart[verifyablePartI].ptr-1;
-		printf("End: %d\n",verifyablePart[verifyablePartI].len);
-		verifyablePartI++;
-	}
-	assert(verifyablePartI<VERIFY_PARTS_ANZ);
-
-	verifyablePart[verifyablePartI].ptr=0;
-	verifyablePartI=0;
-}
-
-uint8_t floppy_raw_getNextCylinderBufferByte()
-{
-	uint8_t ret;
-
-	if (verifySectorDataShift==0)
-		ret = verifySectorData[0];
-	else
-		ret = ( verifySectorData[0] << verifySectorDataShift ) | (verifySectorData[1]>>(8-verifySectorDataShift));
-
-	//printf("%d %02x %02x -> %02x ",verifySectorDataShift,verifySectorData[0],verifySectorData[1],ret);
-	//printCharBin(ret);
-	//printf("\n");
-	verifySectorData++;
-	verifySectorDataBytesLeft--;
-
-	return ret;
-}
-
-
-
-int floppy_raw_readTrackMachine()
-{
-
 	if (mfm_errorHappened)
 	{
 		//printf("R\n");
@@ -571,6 +437,7 @@ int floppy_raw_readTrackMachine()
 	{
 	case 0:
 		floppy_raw_find1541Sync();
+
 		verifiedBytes=0;
 
 		//wenn Flippy mode aktiv, wird kein warten auf index notwendig sein.
@@ -613,7 +480,9 @@ int floppy_raw_readTrackMachine()
 	case 4:
 	{
 		uint8_t toCompare=floppy_raw_getNextCylinderBufferByte();
+
 		gcr_blockedReadRawByte();
+		uint8_t readBack=rawGcrSaved;
 
 		//gcr_blockedRead();
 
@@ -621,7 +490,7 @@ int floppy_raw_readTrackMachine()
 		flux_read_diffDebugFifoWrite(0x40000 | (rawGcrSaved<<8) | toCompare);
 #endif
 
-		if (rawGcrSaved!=toCompare)
+		if (readBack!=toCompare)
 		{
 			//if ((configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX) && verifyablePartI==1)
 			if ((configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX))
@@ -636,7 +505,6 @@ int floppy_raw_readTrackMachine()
 			{
 				//wenn kein flippy vorliegt, ist dies auf jeden fall ein Fehler!
 
-				volatile unsigned char wrongOne=rawGcrSaved; //damit durch die ISR nichts verloren geht
 				STM_EVAL_LEDOn(LED4);
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
@@ -646,7 +514,7 @@ int floppy_raw_readTrackMachine()
 				printf("raw verify failed: %x %d %x != %x\n",
 					*(verifySectorData-1),
 					verifySectorData-1-(uint8_t*)trackData,
-					wrongOne,
+					readBack,
 					toCompare);
 
 				floppy_raw_printTrack();
@@ -673,5 +541,142 @@ int floppy_raw_readTrackMachine()
 	}
 
 	return 0;
+}
+
+
+
+int floppy_raw_mfm_readTrackMachine()
+{
+	if (mfm_errorHappened)
+	{
+		//printf("R\n");
+		mfm_errorHappened=0;
+		trackReadState=0;
+	}
+
+	switch (trackReadState)
+	{
+	case 0:
+		floppy_raw_findMFMSync();
+
+		verifiedBytes=0;
+		trackReadState++;
+
+		break;
+	case 1:
+		if (!floppy_waitForIndex())
+			trackReadState++;
+		break;
+
+	case 2:
+		floppy_raw_getNextVerifyablePart();
+
+		if (!verifySectorData)
+		{
+			//printf("Compared %d byte\n",verifiedBytes);
+			printf("\t->\tCompared %d percent\n",verifiedBytes*100/trackDataSize);
+			sectorsRead=1;
+			trackReadState=5;
+		}
+		else
+			trackReadState++;
+		break;
+	case 3:
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x100000);
+#endif
+
+		//Sowohl Amiga, als auch ISO verwenden >=2 Sync words
+		mfm_blockedWaitForSyncWord(1);
+		//mfm_blockedWaitForSyncWord(2);
+
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x200000);
+#endif
+
+		trackReadState++;
+		break;
+	case 4:
+	{
+		uint16_t toCompare=((uint16_t)floppy_raw_getNextCylinderBufferByte())<<8;
+		toCompare|=floppy_raw_getNextCylinderBufferByte();
+
+		mfm_blockedRead();
+		uint16_t readBack=mfm_savedRawWord;
+
+		//gcr_blockedRead();
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x40000 | (rawGcrSaved<<8) | toCompare);
+#endif
+
+		if (readBack!=toCompare)
+		{
+			//if ((configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX) && verifyablePartI==1)
+			if ((configuration_flags & CONFIGFLAG_FLIPPY_SIMULATE_INDEX))
+			{
+				//im Flippy mode ist das Index Signal leider etwas schlecht. wir verzeihen den fehler, sofern es der Anfang der Spur ist und
+				//versuchen es nochmal in der hoffnung, dass dann der richtige Bereich gefunden wird.
+
+				verifyablePartI--;
+				trackReadState=2;
+			}
+			else
+			{
+				//wenn kein flippy vorliegt, ist dies auf jeden fall ein Fehler!
+
+				STM_EVAL_LEDOn(LED4);
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+				printDebugDiffFifo();
+#endif
+
+				printf("raw verify failed: %x %d %x != %x\n",
+					*(verifySectorData-1),
+					verifySectorData-1-(uint8_t*)trackData,
+					readBack,
+					toCompare);
+
+				floppy_raw_printTrack();
+				STM_EVAL_LEDOff(LED4);
+				return 2;
+			}
+
+		}
+		else
+		{
+			verifiedBytes+=2;
+		}
+
+		if (!verifySectorDataBytesLeft)
+		{
+			trackReadState=2;
+		}
+
+		break;
+	}
+	case 5:
+		printf("you idiot! i'm finished!\n");
+		assert(0);
+		break;
+
+	}
+
+	return 0;
+}
+
+
+
+int floppy_raw_readTrackMachine()
+{
+	if (geometry_format == FLOPPY_FORMAT_RAW_GCR)
+		return floppy_raw_gcr_readTrackMachine();
+	else if (geometry_format == FLOPPY_FORMAT_RAW_MFM)
+		return floppy_raw_mfm_readTrackMachine();
+
+	assert(0);
+	return 3;
 }
 

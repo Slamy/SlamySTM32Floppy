@@ -179,15 +179,6 @@ unsigned int speed1541[]={
 	280
 };
 
-//#define CELL_TICKS_PER_ROTATION 14000000 //360 RPM
-//#define CELL_TICKS_PER_ROTATION 13996112 //360,1 RPM
-//#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
-//#define CELL_TICKS_PER_ROTATION 13961218 //361 RPM
-#define CELL_TICKS_PER_ROTATION 13922651 //362 RPM
-//#define CELL_TICKS_PER_ROTATION 13846153 //364 RPM
-//#define CELL_TICKS_PER_ROTATION 13621621 //370 RPM
-
-
 int readImage_g64(const char *path)
 {
 
@@ -241,7 +232,7 @@ int readImage_g64(const char *path)
 			unsigned int actualTrackSize=((unsigned int)trackData[0]&0xff) | (((unsigned int)trackData[1]&0xff) <<8 );
 
 			int imageCellLength=speed1541[3-speedOffsets[cyl]];
-			int possibleCelllength=floor( ((double)CELL_TICKS_PER_ROTATION) / ((double)actualTrackSize * 8.0));
+			int possibleCelllength=floor( ((double)CELL_TICKS_PER_ROTATION_360) / ((double)actualTrackSize * 8.0));
 
 			int resultingCellLength;
 

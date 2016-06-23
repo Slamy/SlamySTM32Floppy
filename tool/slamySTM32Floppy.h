@@ -57,4 +57,18 @@ int floppy_iso_getSectorPos(int cyl,unsigned char sectorId);
 extern int geometry_iso_sectorInterleave;
 
 
+//#define CELL_TICKS_PER_ROTATION 14000000 //360 RPM
+//#define CELL_TICKS_PER_ROTATION 13996112 //360,1 RPM
+//#define CELL_TICKS_PER_ROTATION 13976705 //360,6 RPM Erfolg bei Mayhem in Monsterland
+//#define CELL_TICKS_PER_ROTATION 13961218 //361 RPM
+#define CELL_TICKS_PER_ROTATION_360 13922651 //362 RPM
+//#define CELL_TICKS_PER_ROTATION 13846153 //364 RPM
+//#define CELL_TICKS_PER_ROTATION 13621621 //370 RPM
+
+
+#define CELL_TICKS_PER_ROTATION_300 16788807 //300,2 RPM
+
+
+
+
 

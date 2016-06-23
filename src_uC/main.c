@@ -99,11 +99,12 @@ int main()
 	*/
 	TM_USB_VCP_Init();
 	//PT_INIT(&floppy_sectorRead_thread_pt);
-	floppy_selectDrive(DRIVE_SELECT_A);
-	floppy_stepToCylinder00();
+
+	floppy_control_senseDrives();
+
 	//floppy_stepToCylinder(40);
 	//floppy_stepToCylinder00();
-	floppy_selectDrive(DRIVE_SELECT_NONE);
+
 	//floppyControl_setMotor(0,1);
 	//mfm_setBitTime(MFM_BITTIME_HD);
 	//transmitTrack(0,18);
@@ -245,7 +246,7 @@ int main()
 			floppySpinTimeOut=0;
 
 			floppy_selectDrive(DRIVE_SELECT_NONE);
-			floppy_setMotor(0,0);
+			floppy_setMotorSelectedDrive(0);
 			flux_read_setEnableState(DISABLE);
 			flux_write_setEnableState(DISABLE);
 		}
@@ -348,8 +349,8 @@ int main()
 #endif
 				if (usb_recv_data[6]==2 && usb_recv_len==9) //discover Format
 				{
-					floppy_selectDrive(DRIVE_SELECT_A);
-					floppy_setMotor(0,1);
+					floppy_selectFittingDrive();
+					floppy_setMotorSelectedDrive(1);
 
 					printf("floppy_discoverFloppyFormat\n");
 					enum floppyFormat fmt=floppy_discoverFloppyFormat(usb_recv_data[7],usb_recv_data[8]);
@@ -446,8 +447,8 @@ int main()
 						}
 						*/
 
-						floppy_selectDrive(DRIVE_SELECT_A);
-						floppy_setMotor(0,1);
+						floppy_selectFittingDrive();
+						floppy_setMotorSelectedDrive(1);
 
 						ret=floppy_writeAndVerifyCylinder(cylinder);
 						if (ret)
@@ -481,8 +482,8 @@ int main()
 
 					printf("Polarize the cylinder %d!\n",cylinder);
 
-					floppy_selectDrive(DRIVE_SELECT_A);
-					floppy_setMotor(0,1);
+					floppy_selectFittingDrive();
+					floppy_setMotorSelectedDrive(1);
 
 					int ret=floppy_polarizeCylinder(cylinder);
 					if (ret)
@@ -500,9 +501,8 @@ int main()
 				}
 				else if (usb_recv_data[6]==6 && usb_recv_len==7) //measure rpm
 				{
-
-					floppy_selectDrive(DRIVE_SELECT_A);
-					floppy_setMotor(0,1);
+					floppy_selectFittingDrive();
+					floppy_setMotorSelectedDrive(1);
 
 					floppy_measureRpm();
 
