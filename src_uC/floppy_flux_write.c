@@ -13,6 +13,7 @@
 #include "stm32f4xx_rcc.h"
 #include "floppy_mfm.h"
 #include "floppy_control.h"
+#include "floppy_flux_write.h"
 
 struct fluxWriteWords
 {
@@ -53,7 +54,7 @@ volatile unsigned int fluxWriteDebugFifo_writePos=0;
 volatile unsigned int fluxWriteDebugFifo_enabled=1;
 #endif
 
-
+int indexOverflowCount=0;
 
 volatile int pulseLenDefinesBreak=0;
 
@@ -122,7 +123,7 @@ uint16_t flux_write_calcNextPauseLen(void)
 	//Wenn der Raw Mode aktiv ist und keine 1en existieren, so pausieren wir den ganzen Automaten für ein paar MFM Zellen und machen dann weiter
 
 	if (!flux_write_currentWord_cellLength)
-		flux_write_currentWord_cellLength=mfm_decodeCellLength;
+		flux_write_currentWord_cellLength=flux_decodeCellLength;
 
 	if (!flux_write_currentWord_active)
 	{
@@ -496,7 +497,8 @@ void flux_configureWriteCellLength(uint16_t cellLength)
 	}
 	else
 	{
-		fluxWriteFifo[writeFifo_writePos].nextWord_cellLength=mfm_decodeCellLength;
+		printf("mfm_write_nextWord_cellLength %u\n",(unsigned int)flux_decodeCellLength);
+		fluxWriteFifo[writeFifo_writePos].nextWord_cellLength=flux_decodeCellLength;
 	}
 
 	fluxWriteFifo[writeFifo_writePos].changesCellLength=1;
@@ -534,10 +536,10 @@ void printFluxWriteDebugFifo()
 			}
 
 			printf("%d ",val);
-			while (val > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+			while (val > flux_decodeCellLength + flux_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 			{
 				printf("0");
-				val-=mfm_decodeCellLength;
+				val-=flux_decodeCellLength;
 			}
 			printf("1\n");
 		}

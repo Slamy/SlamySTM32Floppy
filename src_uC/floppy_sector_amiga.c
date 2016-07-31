@@ -14,6 +14,8 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
 #include "assert.h"
 
 uint32_t byteSwap(uint32_t num)
@@ -197,10 +199,10 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 
 	static uint32_t i=0;
 
-	if (mfm_errorHappened)
+	if (floppy_readErrorHappened)
 	{
 		//printf("R\n");
-		mfm_errorHappened=0;
+		floppy_readErrorHappened=0;
 		trackReadState=0;
 	}
 
@@ -302,7 +304,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 						header_cyl=0;
 						header_head=0;
 						header_sec=0;
-						mfm_errorHappened=1;
+						floppy_readErrorHappened=1;
 						//return 1;
 					}
 
@@ -312,7 +314,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 						header_cyl=0;
 						header_head=0;
 						header_sec=0;
-						mfm_errorHappened=1;
+						floppy_readErrorHappened=1;
 						//return 2;
 					}
 
@@ -367,7 +369,7 @@ int floppy_amiga_readTrackMachine(int expectedCyl, int expectedHead)
 			//512 Byte Datenblock. Das sind 128 Longwords. 128 Odd zuerst. 128 Even danach.
 			mfm_blockedRead();
 
-			if (mfm_errorHappened)
+			if (floppy_readErrorHappened)
 			{
 				printf("FEHLER!\n");
 			}

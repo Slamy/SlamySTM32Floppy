@@ -9,6 +9,10 @@
 #include "floppy_control.h"
 #include "floppy_settings.h"
 #include "assert.h"
+
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
+#include "floppy_gcr_read.h"
 #include "floppy_sector_raw.h"
 
 #define RAWBLOCK_TYPE_HEAD 1
@@ -35,7 +39,7 @@ void floppy_raw_printTrack()
 
 int floppy_raw_writeTrack(int cylinder, int head)
 {
-	//printf("floppy_writeRawTrack %d %d\n",cylinder,head);
+	printf("floppy_raw_writeTrack %d %d\n",cylinder,head);
 
 	int i;
 
@@ -52,7 +56,9 @@ int floppy_raw_writeTrack(int cylinder, int head)
 	trackData=NULL;
 
 	uint8_t *cylBufPtr=(uint8_t*)cylinderBuffer;
-	while ( (timeDataUsed && (!trackData || !timeData)) || (!timeDataUsed && !trackData) )
+
+
+	for(;;)
 	{
 		int blocklen=((int)cylBufPtr[0]<<8) | cylBufPtr[1];
 
@@ -69,13 +75,16 @@ int floppy_raw_writeTrack(int cylinder, int head)
 		if ((blocktype & RAWBLOCK_TYPE_HEAD) == head)
 		{
 			if (blocktype & RAWBLOCK_TYPE_HAS_VARIABLE_DENSITY)
+			{
 				timeDataUsed=1;
+				printf("timeDataUsed=1\n");
+			}
 
 			if (blocktype & RAWBLOCK_TYPE_TIME_DATA)
 			{
 				timeData=cylBufPtr+3;
 				timeDataSize=blocklen;
-				printf("timeData starts\n");
+				printf("timeData size:%d\n",timeDataSize);
 			}
 			else
 			{
@@ -86,10 +95,31 @@ int floppy_raw_writeTrack(int cylinder, int head)
 			}
 		}
 
+		printf("BlockRead State %d %p %p\n",timeDataUsed, trackData, timeData);
+
 		cylBufPtr+=3+blocklen;
 
+		if (!timeDataUsed && trackData && timeData)
+			assert(0); //sollte niemals vorkommen
+
+		if (timeDataUsed && trackData && timeData)
+		{
+			printf("I've found track data and time data. Let's-e go!\n");
+			break;
+		}
+
+		if (!timeDataUsed && trackData && !timeData)
+		{
+			printf("I've found track data. That's all i need!\n");
+			break;
+		}
 	}
-	printf("floppy_writeRawTrack %d %d %d %d %d\n",cylinder,head,trackDataSize,timeDataSize,timeDataUsed);
+
+	assert(trackData);
+	if (timeDataUsed)
+		assert(timeData);
+
+	printf("floppy raw parameters %d %d %d %d %d\n",cylinder,head,trackDataSize,timeDataSize,timeDataUsed);
 
 	assert (trackData >= (unsigned char*)&cylinderBuffer[0]);
 	assert (trackData + trackDataSize < (unsigned char*)&cylinderBuffer[CYLINDER_BUFFER_SIZE]);
@@ -106,7 +136,8 @@ int floppy_raw_writeTrack(int cylinder, int head)
 	{
 		assert(timeData!=NULL);
 
-		/*
+
+/*
 		for (i=0; i<  timeDataSize; i++)
 		{
 			printf("%02x ",timeData[i]);
@@ -114,7 +145,8 @@ int floppy_raw_writeTrack(int cylinder, int head)
 				printf("\n");
 		}
 		printf("\n");
-		*/
+*/
+
 
 		assert(timeData[0]==0); //der erste Eintrag muss mit dem ersten Datenbyte anfangen
 		assert(timeData[1]==0);
@@ -126,7 +158,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		flux_configureWrite(FLUX_RAW,8);
 		flux_configureWriteCellLength(timeDataCellLength);
-		mfm_decodeCellLength = timeDataCellLength;
+		flux_decodeCellLength = timeDataCellLength;
 		printf("cellLength %d\n",timeDataCellLength);
 	}
 	else
@@ -235,12 +267,12 @@ int floppy_raw_writeTrack(int cylinder, int head)
 					if (raw_cellLengthDecrement&1)
 					{
 						if (i&1)
-							flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1) -1);
+							flux_configureWriteCellLength(flux_decodeCellLength - (raw_cellLengthDecrement>>1) -1);
 						else
-							flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
+							flux_configureWriteCellLength(flux_decodeCellLength - (raw_cellLengthDecrement>>1));
 					}
 					else
-						flux_configureWriteCellLength(mfm_decodeCellLength - (raw_cellLengthDecrement>>1));
+						flux_configureWriteCellLength(flux_decodeCellLength - (raw_cellLengthDecrement>>1));
 				}
 #endif
 
@@ -390,7 +422,7 @@ int floppy_raw_writeTrack(int cylinder, int head)
 			}
 			else
 			{
-				printf("track overflown with %d %d\n",(int)overflownBytes,(int)mfm_decodeCellLength);
+				printf("track overflown with %d %d\n",(int)overflownBytes,(int)flux_decodeCellLength);
 				//mfm_decodeCellLength--;
 				raw_cellLengthDecrement++;
 			}
@@ -426,10 +458,10 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 int floppy_raw_gcr_readTrackMachine()
 {
-	if (mfm_errorHappened)
+	if (floppy_readErrorHappened)
 	{
 		//printf("R\n");
-		mfm_errorHappened=0;
+		floppy_readErrorHappened=0;
 		trackReadState=0;
 	}
 
@@ -487,7 +519,7 @@ int floppy_raw_gcr_readTrackMachine()
 		//gcr_blockedRead();
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x40000 | (rawGcrSaved<<8) | toCompare);
+		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | toCompare);
 #endif
 
 		if (readBack!=toCompare)
@@ -547,10 +579,10 @@ int floppy_raw_gcr_readTrackMachine()
 
 int floppy_raw_mfm_readTrackMachine()
 {
-	if (mfm_errorHappened)
+	if (floppy_readErrorHappened)
 	{
 		//printf("R\n");
-		mfm_errorHappened=0;
+		floppy_readErrorHappened=0;
 		trackReadState=0;
 	}
 
@@ -582,7 +614,7 @@ int floppy_raw_mfm_readTrackMachine()
 			trackReadState++;
 		break;
 	case 3:
-
+		mfm_inSync = 0;
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 		flux_read_diffDebugFifoWrite(0x100000);
 #endif
@@ -609,7 +641,7 @@ int floppy_raw_mfm_readTrackMachine()
 		//gcr_blockedRead();
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x40000 | (rawGcrSaved<<8) | toCompare);
+		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | toCompare);
 #endif
 
 		if (readBack!=toCompare)
@@ -639,7 +671,7 @@ int floppy_raw_mfm_readTrackMachine()
 					readBack,
 					toCompare);
 
-				floppy_raw_printTrack();
+				//floppy_raw_printTrack();
 				STM_EVAL_LEDOff(LED4);
 				return 2;
 			}

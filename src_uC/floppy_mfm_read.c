@@ -13,6 +13,9 @@
 #include "stm32f4xx_rcc.h"
 #include "floppy_mfm.h"
 #include "floppy_control.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux.h"
+
 
 volatile uint32_t mfm_savedRawWord=0;
 volatile uint8_t mfm_decodedByte=0;
@@ -22,10 +25,9 @@ volatile uint32_t mfm_decodedByteValid=0;
 volatile static uint32_t rawMFM = 0;
 volatile static uint8_t decodedMFM = 0;
 volatile static uint32_t shiftedBits=0;
-int indexOverflowCount=0;
+
 
 static unsigned int mfm_timeOut=0;
-unsigned int mfm_errorHappened=0;
 
 
 void mfm_iso_decode()
@@ -79,9 +81,9 @@ void mfm_iso_transitionHandler()
 	{
 		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
 		//printf("diff:%d\n",diff);
-		while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		while (diff > flux_decodeCellLength + flux_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 		{
-			diff-=mfm_decodeCellLength;
+			diff-=flux_decodeCellLength;
 			rawMFM<<=1;
 			if ((shiftedBits&1)!=0)
 			{
@@ -147,9 +149,9 @@ void mfm_amiga_transitionHandler()
 	{
 		//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
 		//printf("diff:%d\n",diff);
-		while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+		while (diff > flux_decodeCellLength + flux_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 		{
-			diff-=mfm_decodeCellLength;
+			diff-=flux_decodeCellLength;
 			rawMFM<<=1;
 			shiftedBits++;
 			mfm_amiga_decode();
@@ -163,6 +165,23 @@ void mfm_amiga_transitionHandler()
 	}
 }
 
+void mfm_handleFluxReadFifo()
+{
+	if (fluxReadFifo_writePos != fluxReadFifo_readPos)
+	{
+		diff = fluxReadFifo[fluxReadFifo_readPos];
+		fluxReadFifo_readPos=(fluxReadFifo_readPos+1)&FLUX_READ_FIFO_SIZE_MASK;
+
+		if (flux_mode==FLUX_MODE_MFM_AMIGA)
+			mfm_amiga_transitionHandler();
+		else if (flux_mode==FLUX_MODE_MFM_ISO)
+			mfm_iso_transitionHandler();
+		else
+			assert(0);
+
+	}
+}
+
 
 void mfm_blockedWaitForSyncWord(int expectNum)
 {
@@ -170,14 +189,15 @@ void mfm_blockedWaitForSyncWord(int expectNum)
 
 	while (mfm_inSync!=expectNum && mfm_timeOut)
 	{
+		mfm_handleFluxReadFifo();
 		ACTIVE_WAITING
 		mfm_timeOut--;
 	}
 
 	if (mfm_inSync!=expectNum)
 	{
-		printf("mfm_inSync!=expectNum\n");
-		mfm_errorHappened=1;
+		printf("mfm_inSync %d != expectNum %d\n",mfm_inSync,expectNum);
+		floppy_readErrorHappened=1;
 	}
 
 }
@@ -190,6 +210,7 @@ void mfm_blockedRead()
 
 	while (!mfm_decodedByteValid && mfm_timeOut)
 	{
+		mfm_handleFluxReadFifo();
 		ACTIVE_WAITING
 		mfm_timeOut--;
 	}
@@ -197,7 +218,7 @@ void mfm_blockedRead()
 	if (!mfm_decodedByteValid)
 	{
 		printf("timeout...\n");
-		mfm_errorHappened=1;
+		floppy_readErrorHappened=1;
 	}
 }
 

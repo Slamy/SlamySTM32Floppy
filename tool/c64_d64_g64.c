@@ -74,9 +74,8 @@ int readImage_d64(const char *path)
 	FILE *f=fopen(path,"r");
 	assert(f);
 
-	int trk,sec;
+	int trk;
 	int cyl=0;
-	int totalBytesRead=0;
 
 	for (trk=0;trk<geometry_tracks;trk++)
 	{
@@ -87,6 +86,24 @@ int readImage_d64(const char *path)
 
 		int bytesRead = fread(&image_cylinderBuf[cyl][0],1,image_cylinderSize[cyl],f);
 		assert(image_cylinderSize[cyl] == bytesRead);
+
+
+/*
+		if ((cyl==14) || (cyl == 2) || (cyl == 0))
+		{
+			printf("Cylinder is %d\n",cyl);
+			for (int i=0; i< bytesRead; i++)
+			{
+
+				if ((i%16)==0)
+					printf("\n %06d ",i);
+
+				printf("%02x ",image_cylinderBuf[cyl][i]);
+
+			}
+			printf("\n");
+		}
+*/
 
 		cyl++;
 
@@ -197,12 +214,12 @@ int readImage_g64(const char *path)
 
 	fclose(f);
 
-	char *header=diskImage;
+	unsigned char *header=diskImage;
 	uint32_t trackOffsets[90];
 	uint32_t speedOffsets[90];
 
 
-	if (strncmp(header,"GCR-1541",8))
+	if (strncmp((char*)header,"GCR-1541",8))
 	{
 		printf("GCR Header nicht gefunden!\n");
 		return 1;
@@ -245,7 +262,7 @@ int readImage_g64(const char *path)
 			//resultingCellLength = imageCellLength;
 
 
-#if 0
+#if 1
 			//Hack für Katakis Side 1 G64
 			if (cyl==70)
 			{

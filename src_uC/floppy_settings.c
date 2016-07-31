@@ -11,6 +11,7 @@
 #include "floppy_control.h"
 #include "floppy_sector.h"
 #include "floppy_indexSim.h"
+#include "floppy_flux.h"
 
 
 enum floppyMedium preferedFloppyMedium=FLOPPY_MEDIUM_UNKNOWN;
@@ -53,7 +54,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 	{
 		case FLOPPY_FORMAT_ISO_HD:
 			flux_mode = FLUX_MODE_MFM_ISO;
-			mfm_decodeCellLength=MFM_BITTIME_HD>>1;
+			flux_decodeCellLength=MFM_BITTIME_HD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -64,7 +65,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			break;
 		case FLOPPY_FORMAT_ISO_DD:
 			flux_mode = FLUX_MODE_MFM_ISO;
-			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+			flux_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -76,7 +77,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 
 		case FLOPPY_FORMAT_AMIGA_DD:
 			flux_mode = FLUX_MODE_MFM_AMIGA;
-			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+			flux_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -87,7 +88,7 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			break;
 		case FLOPPY_FORMAT_RAW_MFM:
 			flux_mode = FLUX_MODE_MFM_ISO;
-			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+			flux_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;
@@ -98,8 +99,9 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 			break;
 
 		case FLOPPY_FORMAT_C64:
+			printf("geometry_format == FLOPPY_FORMAT_C64\n");
 			flux_mode = FLUX_MODE_GCR_C64;
-			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+			flux_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=40;
 			geometry_heads=1;
@@ -112,8 +114,9 @@ void floppy_configureFormat(enum floppyFormat fmt, int cylinders, int heads, uin
 
 			break;
 		case FLOPPY_FORMAT_RAW_GCR:
+			printf("geometry_format == FLOPPY_FORMAT_RAW_GCR\n");
 			flux_mode = FLUX_MODE_GCR_C64;
-			mfm_decodeCellLength=MFM_BITTIME_DD>>1;
+			flux_decodeCellLength=MFM_BITTIME_DD>>1;
 
 			geometry_cylinders=80;
 			geometry_heads=2;

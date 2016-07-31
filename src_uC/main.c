@@ -13,6 +13,8 @@
 #include "floppy_mfm.h"
 #include "tm_stm32f4_usb_vcp.h"
 #include "assert.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
 
 volatile int systickCnt=0;
 volatile int floppySpinTimeOut=0;
@@ -100,9 +102,12 @@ int main()
 	TM_USB_VCP_Init();
 	//PT_INIT(&floppy_sectorRead_thread_pt);
 
+	//floppy_selectDrive(DRIVE_SELECT_A);
+	//floppy_steppingTest();
+
 	floppy_control_senseDrives();
 
-	//floppy_stepToCylinder(40);
+	//floppy_stepToCylinder(4);
 	//floppy_stepToCylinder00();
 
 	//floppyControl_setMotor(0,1);

@@ -14,6 +14,8 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
 #include "assert.h"
 
 unsigned int floppy_iso_getSectorPos(unsigned char sectorId)
@@ -126,7 +128,7 @@ int floppy_iso_writeTrack(int cylinder, int head)
 
 		//die Spur bis zum Index mit 0en vollschreiben. Vermeidet Müll, den wir nicht haben wollen
 		flux_configureWrite(FLUX_MFM_ENCODE,8);
-		flux_configureWriteCellLength(mfm_decodeCellLength - iso_cellLengthDecrement);
+		flux_configureWriteCellLength(flux_decodeCellLength - iso_cellLengthDecrement);
 		flux_blockedWrite(0x00);
 
 		if (floppy_waitForIndex())
@@ -306,10 +308,10 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 
 	static unsigned int i=0;
 
-	if (mfm_errorHappened)
+	if (floppy_readErrorHappened)
 	{
 		//printf("Reset statemachine\n");
-		mfm_errorHappened=0;
+		floppy_readErrorHappened=0;
 		trackReadState=0;
 	}
 
@@ -430,7 +432,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 				header_head=0;
 				header_secId=0;
 				//printf("Cylinder is wrong!\n");
-				mfm_errorHappened=1;
+				floppy_readErrorHappened=1;
 			}
 
 			if (header_head != expectedHead)
@@ -439,7 +441,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 				header_head=0;
 				header_secId=0;
 				//printf("Head is wrong!\n");
-				mfm_errorHappened=1;
+				floppy_readErrorHappened=1;
 			}
 
 			if (header_secPos >= geometry_sectors)
@@ -479,7 +481,7 @@ int floppy_iso_readTrackMachine(int expectedCyl, int expectedHead)
 			//sectorData=&((uint8_t*)cylinderBuffer)[((header_sec-1)+(expectedHead * geometry_sectors)) * geometry_payloadBytesPerSector];
 
 			if (sectorData==NULL)
-				mfm_errorHappened=1;
+				floppy_readErrorHappened=1;
 
 			if (verifyMode && header_secDel != geometry_iso_sectorErased[header_secPos])
 			{

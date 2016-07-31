@@ -15,6 +15,9 @@
 #include "floppy_mfm.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux.h"
+
 
 volatile static uint32_t shiftedBits=0;
 volatile static uint32_t oneCounter=0;
@@ -133,6 +136,7 @@ void gcr_c64_decode()
 			gcr_decodedNibbleValid=1;
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+			//Speichere nun empfangene 8 Raw GCR Bits im DebugFifo
 			flux_read_diffDebugFifoWrite(0x20000|rawGcrSaved);
 #endif
 		}
@@ -144,6 +148,11 @@ void gcr_c64_decode()
 			shiftedBits=0;
 			//printf("Decoded:%2x\n",decodedMFM);
 			decodedGcr=gcrDecodeTable[rawGcr & 0x1f];
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+			//Speichere nun empfangene 5 Raw GCR Bits + die decodierte Version im DebugFifo
+			flux_read_diffDebugFifoWrite(0x20000| ((rawGcr & 0x1f)<<8) |decodedGcr);
+#endif
 			rawGcr=0;
 			gcr_decodedNibbleValid=1;
 		}
@@ -191,7 +200,7 @@ void gcr_c64_transitionHandler()
 
 	//Die leeren Zellen werden nun abgezogen und 0en werden eingeshiftet.
 	//printf("diff:%d\n",diff);
-	while (diff > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+	while (diff > flux_decodeCellLength + flux_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 	{
 		if (oneCounter >= 10) //Eigentlich sollten es 10 sein...
 		{
@@ -200,7 +209,7 @@ void gcr_c64_transitionHandler()
 		}
 		oneCounter=0;
 
-		diff-=mfm_decodeCellLength;
+		diff-=flux_decodeCellLength;
 		rawGcr<<=1;
 		shiftedBits++;
 		gcr_c64_decode();
@@ -219,6 +228,25 @@ void gcr_c64_transitionHandler()
 
 }
 
+
+void gcr_handleFluxReadFifo()
+{
+	if (fluxReadFifo_writePos != fluxReadFifo_readPos)
+	{
+		diff = fluxReadFifo[fluxReadFifo_readPos];
+		fluxReadFifo_readPos=(fluxReadFifo_readPos+1)&FLUX_READ_FIFO_SIZE_MASK;
+
+		if (flux_mode==FLUX_MODE_GCR_C64)
+		{
+			if (diff==FLUX_DIFF_5_CELLS_WITHOUT_TRANS)
+				gcr_c64_5CellsNoTransitionHandler();
+			else
+				gcr_c64_transitionHandler();
+		}
+	}
+}
+
+
 void gcr_blockedWaitForSyncState()
 {
 	gcr_timeOut=4000000;
@@ -227,6 +255,7 @@ void gcr_blockedWaitForSyncState()
 	gcr_inSync=0;
 	while (!gcr_inSync && gcr_timeOut)
 	{
+		gcr_handleFluxReadFifo();
 		ACTIVE_WAITING
 		gcr_timeOut--;
 	}
@@ -234,7 +263,7 @@ void gcr_blockedWaitForSyncState()
 	if (!gcr_inSync)
 	{
 		printf("no sync timeout...\n");
-		mfm_errorHappened=1;
+		floppy_readErrorHappened=1;
 	}
 
 }
@@ -243,19 +272,21 @@ void gcr_blockedWaitForSyncState()
 void gcr_blockedRead()
 {
 	gcr_timeOut=30000;
+	fluxReadCount=0;
 
 	//Das obere Nibble
 	gcr_decodedNibbleValid=0;
-	while (!gcr_decodedNibbleValid && gcr_timeOut)
+	while (!gcr_decodedNibbleValid && gcr_timeOut && fluxReadCount < 20)
 	{
+		gcr_handleFluxReadFifo();
 		ACTIVE_WAITING
 		gcr_timeOut--;
 	}
 
 	if (!gcr_decodedNibbleValid || decodedGcr==0xff)
 	{
-		mfm_errorHappened=1;
-		printf("gcr_blockedReadRawByte timeout\n");
+		floppy_readErrorHappened=1;
+		printf("gcr_blockedRead timeout1\n");
 		return;
 	}
 
@@ -263,18 +294,34 @@ void gcr_blockedRead()
 
 	//Das untere Nibble
 	gcr_decodedNibbleValid=0;
-	while (!gcr_decodedNibbleValid && gcr_timeOut)
+	while (!gcr_decodedNibbleValid && gcr_timeOut && fluxReadCount < 30)
 	{
+		gcr_handleFluxReadFifo();
 		ACTIVE_WAITING
 		gcr_timeOut--;
 	}
 
-	if (!gcr_decodedNibbleValid || decodedGcr==0xff)
+	if (!gcr_decodedNibbleValid )
 	{
-		mfm_errorHappened=1;
-		printf("gcr_blockedReadRawByte timeout\n");
+		floppy_readErrorHappened=1;
+		printf("gcr_blockedRead timeout2\n");
 		return;
 	}
+
+	if (decodedGcr==0xff)
+	{
+		floppy_readErrorHappened=1;
+		STM_EVAL_LEDOn(LED4);
+		printf("gcr_blockedRead decoding fail2\n");
+		STM_EVAL_LEDOff(LED4);
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		printDebugDiffFifo();
+#endif
+
+		return;
+	}
+
 
 	gcr_decodedByte|=decodedGcr;
 }
@@ -288,13 +335,14 @@ void gcr_blockedReadRawByte()
 	gcr_decodedNibbleValid=0;
 	while (!gcr_decodedNibbleValid && gcr_timeOut)
 	{
+		gcr_handleFluxReadFifo();
 		ACTIVE_WAITING
 		gcr_timeOut--;
 	}
 
 	if (!gcr_decodedNibbleValid)
 	{
-		mfm_errorHappened=1;
+		floppy_readErrorHappened=1;
 		printf("gcr_blockedReadRawByte timeout\n");
 	}
 

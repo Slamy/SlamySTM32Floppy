@@ -10,10 +10,12 @@
 #include "stm32f4xx_tim.h"
 #include "stm32f4xx_rcc.h"
 #include "floppy_crc.h"
-#include "floppy_mfm.h"
+#include "floppy_gcr_read.h"
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_settings.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
 #include "assert.h"
 
 extern const unsigned char gcrEncodeTable[];
@@ -123,6 +125,12 @@ int floppy_c64_writeTrack(uint32_t cylinder)
 			flux_blockedWrite(0x55);
 	}
 
+	//Spur auslaufen lassen...
+	for (i=0;i<2;i++)
+		flux_blockedWrite(0x55);
+
+	flux_write_waitForUnderflow();
+
 	floppy_setWriteGate(0);
 
 
@@ -148,10 +156,10 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 
 	static uint32_t i=0;
 
-	if (mfm_errorHappened)
+	if (floppy_readErrorHappened)
 	{
-		//printf("R\n");
-		mfm_errorHappened=0;
+		printf("R %d %d\n",trackReadState,(int)i);
+		floppy_readErrorHappened=0;
 		trackReadState=0;
 	}
 
@@ -168,7 +176,7 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 		else if(gcr_decodedByte==0x07) //Daten beginnen mit 0x07
 			trackReadState=20;
 		else
-			trackReadState=0;
+			floppy_readErrorHappened=1;
 		break;
 	case 10:
 		gcr_blockedRead();
@@ -195,7 +203,7 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 	case 11:
 		if (header_checksum==0)
 		{
-			printf("C64 SecHead %d %d %x %x\n",(int)header_track,(int)header_sector,(unsigned int)header_id1,(unsigned int)header_id2);
+			//printf("C64 SecHead %d %d %x %x\n",(int)header_track,(int)header_sector,(unsigned int)header_id1,(unsigned int)header_id2);
 
 			if (!trackSectorDetected[header_sector])
 			{
@@ -208,7 +216,7 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 				header_track=0;
 				header_sector=-1;
 				printf("Cylinder is wrong!\n");
-				mfm_errorHappened=1;
+				floppy_readErrorHappened=1;
 			}
 			else if (header_sector >= geometry_sectors)
 			{
@@ -223,26 +231,29 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 		else
 		{
 			printf("C64 wrong checksum\n");
-			trackReadState=0;
+			floppy_readErrorHappened=1;
 		}
 		break;
 	case 12:
 
+		i=1;
 		gcr_blockedRead();
 		if (gcr_decodedByte!=0x0f)
-			trackReadState=0;
+			floppy_readErrorHappened=1;
 
+		i=2;
 		gcr_blockedRead();
 		if (gcr_decodedByte!=0x0f)
-			trackReadState=0;
+			floppy_readErrorHappened=1;
 
+		trackReadState=0;
 		break;
 
 
 	case 20:
 		//Nur Daten Block verarbeiten, wenn header_sector valide
 		if (header_sector==-1)
-			trackReadState=0;
+			floppy_readErrorHappened=1;
 		else
 		{
 			i=0;
@@ -254,23 +265,37 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 		break;
 	case 21:
 		gcr_blockedRead();
+		uint8_t readBack=gcr_decodedByte;
 
 		if (verifyMode)
 		{
-			if (sectorData[i]!=gcr_decodedByte)
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | sectorData[i]);
+#endif
+
+			if (sectorData[i]!=readBack)
 			{
-				printf("i==%d   %p %x != %x\n",
+				STM_EVAL_LEDOn(LED4);
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+				printDebugDiffFifo();
+#endif
+				printf("verify failed on sec %d  i=%d   bufpos %u %x != %x\n",
+						header_sector,
 						(int)i,
-						&sectorData[i],
+						(unsigned int)((uint32_t)&sectorData[i] - (uint32_t)cylinderBuffer),
 						sectorData[i],
-						(unsigned int)gcr_decodedByte);
+						(unsigned int)readBack);
+
+				STM_EVAL_LEDOff(LED4);
 				return 3; //verify failed
 			}
 		}
 		else
-			sectorData[i]=gcr_decodedByte;
+			sectorData[i]=readBack;
 
-		header_checksum^=gcr_decodedByte;
+		header_checksum^=readBack;
 		i++;
 
 		if (i==256)
@@ -296,11 +321,18 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 		{
 			printf("data block checksum error %d\n",header_sector);
 		}
+
+		if (floppy_readErrorHappened)
+		{
+			printf("Timeout on Checksum\n");
+		}
+
 		header_sector=-1;
 		trackReadState=0;
 
 		break;
 	default:
+		printf("Default state!\n");
 		trackReadState=0;
 		break;
 	}
@@ -314,25 +346,25 @@ void floppy_c64_setTrackSettings(int trk)
 
 	if (trk <= 17) //Track 1 - 17 -> Cylinder 0 - 16
 	{
-		mfm_decodeCellLength=227; //307692 bit/s
+		flux_decodeCellLength=227; //307692 bit/s
 		geometry_sectors=21;
 		geometry_c64_gap_size=8;
 	}
 	else if (trk <= 24) //Track 18 - 24 -> Cylinder 17 - 23
 	{
-		mfm_decodeCellLength=246; //285714 bit/s
+		flux_decodeCellLength=246; //285714 bit/s
 		geometry_sectors=19;
 		geometry_c64_gap_size=17;
 	}
 	else if (trk <= 30) //Track 25 - 30 -> Cylinder 24 - 29
 	{
-		mfm_decodeCellLength=262; //266667 bit/s
+		flux_decodeCellLength=262; //266667 bit/s
 		geometry_sectors=18;
 		geometry_c64_gap_size=12;
 	}
 	else //Track 31 - Ende
 	{
-		mfm_decodeCellLength=280; //250000 bit/s
+		flux_decodeCellLength=280; //250000 bit/s
 		geometry_sectors=17;
 		geometry_c64_gap_size=9;
 	}

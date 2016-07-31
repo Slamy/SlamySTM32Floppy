@@ -8,9 +8,7 @@
 #include "floppy_control.h"
 
 
-uint32_t mfm_decodeCellLength=MFM_BITTIME_DD/2;
 
-enum fluxMode flux_mode;
 uint32_t mfm_sectorsPerTrack=0;
 
 

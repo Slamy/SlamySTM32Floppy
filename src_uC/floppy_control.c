@@ -13,6 +13,7 @@
 #include "floppy_sector.h"
 #include "floppy_control.h"
 #include "floppy_mfm.h"
+#include "floppy_flux_write.h"
 #include "assert.h"
 
 enum DriveSelect readyDrives;
@@ -150,6 +151,10 @@ void floppy_selectDensity(enum Density val)
 
 void floppy_selectFittingDrive()
 {
+	//für Testzwecke...
+	//floppy_selectDrive(DRIVE_SELECT_A);
+	//return;
+
 	//nimm das Laufwerk, das am ehesten passen würde
 
 	//haben wir nur eines dran? dann nimm dieses!
@@ -162,9 +167,9 @@ void floppy_selectFittingDrive()
 	//wenn nicht, gibt es Empfehlungen für eine Diskettengröße ?
 
 	if (preferedFloppyMedium == FLOPPY_MEDIUM_3_5_INCH)
-		floppy_selectDrive(DRIVE_SELECT_A);
-	else if (preferedFloppyMedium == FLOPPY_MEDIUM_5_1_4_INCH)
 		floppy_selectDrive(DRIVE_SELECT_B);
+	else if (preferedFloppyMedium == FLOPPY_MEDIUM_5_1_4_INCH)
+		floppy_selectDrive(DRIVE_SELECT_A);
 	else
 		assert(0);
 
@@ -200,6 +205,7 @@ void floppy_control_senseDrives()
 	readyDrives=0;
 
 	floppy_selectDrive(DRIVE_SELECT_A);
+	floppy_stepToCylinder(5);
 	if (!floppy_stepToCylinder00())
 	{
 		readyDrives|=DRIVE_SELECT_A;
@@ -207,6 +213,7 @@ void floppy_control_senseDrives()
 	}
 
 	floppy_selectDrive(DRIVE_SELECT_B);
+	floppy_stepToCylinder(5);
 	if (!floppy_stepToCylinder00())
 	{
 		readyDrives|=DRIVE_SELECT_B;
@@ -281,6 +288,7 @@ void floppy_setHead(int head)
 	//printf(" %d\n",GPIOB->IDR & GPIO_Pin_11);
 }
 
+#define STEP_SETTLE_TIME 350
 #define STEP_WAIT_TIME 125
 #define STEP_LOW_TIME 13
 
@@ -303,9 +311,6 @@ int floppy_stepToCylinder00()
 	{
 		//printf("ST OUT! %d %d\n",TIM3->CNT,TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1));
 
-		setupStepTimer(STEP_WAIT_TIME);
-		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
-
 		GPIOB->BSRRH=GPIO_Pin_4; //set /STEP to low
 
 		setupStepTimer(STEP_LOW_TIME);
@@ -314,6 +319,9 @@ int floppy_stepToCylinder00()
 		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
 		trys++;
 
+		setupStepTimer(STEP_WAIT_TIME);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
 		if (trys > 85)
 		{
 			printf("floppy_stepToTrack00() TIMEOUT\n");
@@ -321,9 +329,124 @@ int floppy_stepToCylinder00()
 		}
 	}
 
+	setupStepTimer(STEP_SETTLE_TIME);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
 	currentTrack=0;
 	return 0;
 }
+
+int floppy_stepToCylinder00Tested()
+{
+	int ret=0;
+
+	while (currentTrack != 0)
+	{
+		/*
+		if (!(GPIOB->IDR & GPIO_Pin_7))
+		{
+			currentTrack=0;
+		}
+		*/
+
+		//printf("TRK00:%x\n",GPIOB->IDR & GPIO_Pin_7);
+
+		//PT_WAIT_UNTIL(pt,currentTrack != wantedTrack);
+
+		//printf("ST OUT! %d\n",SysTick->VAL);
+		GPIOB->BSRRL=GPIO_Pin_2; //set /DIR to high to step outside
+		currentTrack--;
+
+		setupStepTimer(STEP_WAIT_TIME);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+		if (!(GPIOB->IDR & GPIO_Pin_7)) //is /TRK00 low?
+		{
+			printf("***  /TRK00 ist unerlaubt low\n");
+			ret=1;
+		}
+
+		GPIOB->BSRRH=GPIO_Pin_4; //set /STEP to low
+		//gpio_setPin4Mode(GPIOB,GPIO_Mode_OUT);
+
+		setupStepTimer(STEP_LOW_TIME);
+		while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+		GPIOB->BSRRL=GPIO_Pin_4; //set /STEP to high
+		//gpio_setPin4Mode(GPIOB,GPIO_Mode_IN);
+	}
+
+	setupStepTimer(STEP_SETTLE_TIME);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	if ((GPIOB->IDR & GPIO_Pin_7)) //is /TRK00 high?
+	{
+		printf("***  /TRK00 ist unerlaubt high\n");
+		ret=1;
+	}
+
+	return ret;
+}
+
+void floppy_steppingTest()
+{
+	int ret=0;
+
+	printf("Step to Cyl 20 and reset for clean test start\n");
+	floppy_stepToCylinder(20);
+	ret|=floppy_stepToCylinder00();
+
+	setupStepTimer(20000);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	printf("Step to Cyl 1 and back\n");
+	floppy_stepToCylinder(1);
+	ret|=floppy_stepToCylinder00Tested();
+
+	setupStepTimer(20000);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	printf("Step to Cyl 3 and back\n");
+	floppy_stepToCylinder(3);
+	ret|=floppy_stepToCylinder00Tested();
+
+	setupStepTimer(20000);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	printf("Step slowly forward and back... now step\n");
+	floppy_stepToCylinder(1);
+
+	setupStepTimer(20000);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	printf("and step\n");
+	floppy_stepToCylinder(2);
+
+	setupStepTimer(20000);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
+
+	printf("and back\n");
+	ret|=floppy_stepToCylinder00Tested();
+
+	printf("Now for hardcore!\n");
+	floppy_stepToCylinder(20);
+	ret|=floppy_stepToCylinder00Tested();
+	floppy_stepToCylinder(30);
+	ret|=floppy_stepToCylinder00Tested();
+	floppy_stepToCylinder(40);
+	ret|=floppy_stepToCylinder00Tested();
+	floppy_stepToCylinder(50);
+	ret|=floppy_stepToCylinder00Tested();
+	floppy_stepToCylinder(60);
+	ret|=floppy_stepToCylinder00Tested();
+
+	if (ret)
+		printf("Stepping test FAILED!\n");
+	else
+		printf("Stepping test SUCCEEDED!\n");
+
+}
+
 
 void floppy_stepToCylinder(unsigned int wantedCyl)
 {
@@ -366,6 +489,8 @@ void floppy_stepToCylinder(unsigned int wantedCyl)
 		//gpio_setPin4Mode(GPIOB,GPIO_Mode_IN);
 	}
 
+	setupStepTimer(STEP_SETTLE_TIME);
+	while(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC1)==RESET);
 }
 
 void floppy_setWriteGate(int val)

@@ -34,6 +34,7 @@ add_executable (slamyflop
 	floppy_gcr_read.c
 	floppy_flux_write.c
 	floppy_flux_read.c
+	floppy_flux.c
 	floppy_sector.c
 	floppy_sector_iso.c
 	floppy_sector_amiga.c

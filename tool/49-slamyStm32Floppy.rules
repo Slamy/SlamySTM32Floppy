@@ -1,0 +1,7 @@
+#Slamy STM32 Floppy Rights
+
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", \
+    MODE:="0666", \
+    SYMLINK+="slamyflop_%n"
+
+

@@ -284,7 +284,7 @@ void writeCylinderFromImage(int cylinder)
 	int i;
 	unsigned char cylinderBuf[CYLINDER_BUFFER_SIZE];
 	int bytes_read;
-	int total_bytes_read;
+
 	unsigned char sendBuf[64];
 	unsigned char recvBuf[64];
 	int tracksize=0;
@@ -395,7 +395,6 @@ void readCylinderToImage(int cylinder)
 	int i;
 	unsigned char trackBuf[512*18*2];
 	int bytes_read;
-	int total_bytes_read;
 	unsigned char sendBuf[64];
 	unsigned char recvBuf[64];
 
@@ -412,16 +411,13 @@ void readCylinderToImage(int cylinder)
 	memset(recvBuf,0,sizeof(recvBuf));
 
 	bytes_read=receiveFrame(recvBuf);
-	if (memcmp(sendBuf,recvBuf,8))
+	if (bytes_read!=8 || memcmp(sendBuf,recvBuf,8))
 	{
 		printf("Track read not accepted!\n");
 		exit(1);
 	}
 
-
-	total_bytes_read=0;
 	
-	unsigned char checksum=0;
 	int tracksize=image_cylinderSize[cylinder];
 	//printf("%d %d %d\n",geometry_payloadBytesPerSector,geometry_heads,geometry_sectors);
 	printf("Cylinder read %d ... expecting %d byte\n",cylinder,tracksize);
@@ -573,10 +569,6 @@ int floppy_iso_getSectorPos(int cyl,unsigned char sectorId)
 
 int analyseImage(const char *path)
 {
-
-	int i;
-	int cyl,head,heads,secs;
-
 	char *fileTypeStr=strrchr(path,'.');
 
 
@@ -904,9 +896,10 @@ int main (int argc, char **argv)
 		printf("analyzed...\n");
 		configureController();
 
+		//writeDisk(0,0);
 		writeDisk(0,geometry_cylinders-1);
 		//writeDisk(68,geometry_cylinders-1);
-		//writeDisk(30,geometry_cylinders-1);
+		//writeDisk(45,geometry_cylinders-1);
 		//writeDisk(34,34);
 
 

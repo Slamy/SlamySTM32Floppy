@@ -13,8 +13,17 @@
 #include "stm32f4xx_rcc.h"
 #include "floppy_mfm.h"
 #include "floppy_control.h"
+#include "floppy_flux.h"
+#include "floppy_flux_read.h"
+
+
+unsigned int floppy_readErrorHappened=0;
 
 unsigned int diff;
+volatile unsigned int fluxReadCount=0;
+
+uint32_t flux_decodeCellLength=MFM_BITTIME_DD/2;
+
 
 #ifdef ACTIVATE_DIFFCOLLECTOR
 volatile unsigned short diffCollector[DIFF_COLLECTOR_SIZE];
@@ -29,9 +38,15 @@ volatile unsigned int fluxReadDebugFifo_enabled=1;
 #endif
 
 
+volatile unsigned short fluxReadFifo[FLUX_READ_FIFO_SIZE];
+volatile unsigned int fluxReadFifo_writePos=0;
+volatile unsigned int fluxReadFifo_readPos=0;
+
+
 void TIM2_IRQHandler(void)
 {
 	static unsigned int lastTransitionTime=0;
+	static unsigned int readDiff=0;
 
 	//unsigned int intStart=TIM_GetCounter(TIM2);
 
@@ -40,26 +55,24 @@ void TIM2_IRQHandler(void)
 	if (TIM_GetITStatus(TIM2, TIM_IT_CC3))
 	{
 		unsigned int transitionTime=TIM_GetCapture3(TIM2);
-		diff=transitionTime - lastTransitionTime;
+		readDiff=transitionTime - lastTransitionTime;
 		TIM_ClearITPendingBit(TIM2, TIM_IT_CC3);
 
 #ifdef ACTIVATE_DIFFCOLLECTOR
 		if (diffCollectorEnabled && diffCollector_Anz < DIFF_COLLECTOR_SIZE)
 		{
-			diffCollector[diffCollector_Anz++]=diff;
+			diffCollector[diffCollector_Anz++]=readDiff;
 		}
 #endif
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(diff);
+		//Speichere Länge der Transition im DebugFifo
+		flux_read_diffDebugFifoWrite(readDiff);
 #endif
 
-		if (flux_mode==FLUX_MODE_MFM_AMIGA)
-			mfm_amiga_transitionHandler();
-		else if (flux_mode==FLUX_MODE_MFM_ISO)
-			mfm_iso_transitionHandler();
-		else if (flux_mode==FLUX_MODE_GCR_C64)
-			gcr_c64_transitionHandler();
+		fluxReadFifo[fluxReadFifo_writePos]=readDiff;
+		fluxReadFifo_writePos=(fluxReadFifo_writePos+1)&FLUX_READ_FIFO_SIZE_MASK;
+		fluxReadCount++;
 
 		//printf("%u\n",diff);
 
@@ -67,7 +80,10 @@ void TIM2_IRQHandler(void)
 
 		//Der "5 Zellen keine Transition"-Timeout muss nach 5,5 Zellen nach der letzten Transition zuschlagen, damit
 		//sicher ist, dass 5 Zellen Pause war. Länger nicht, da die 6. Zelle eine 1 sein könnte.
-		TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+
+
+		//TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+		TIM2->CCR2 = lastTransitionTime + flux_decodeCellLength*5 + flux_decodeCellLength/2; //ist schneller
 	}
 
 	if (TIM_GetITStatus(TIM2, TIM_IT_CC2))
@@ -76,22 +92,23 @@ void TIM2_IRQHandler(void)
 		//printf("Capture\n");
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		//Speichere "5Cells ohne Transition" im DebugFifo
 		flux_read_diffDebugFifoWrite(0x10000);
 #endif
 
-		gcr_c64_5CellsNoTransitionHandler();
+		fluxReadFifo[fluxReadFifo_writePos]=FLUX_DIFF_5_CELLS_WITHOUT_TRANS;
+		fluxReadFifo_writePos=(fluxReadFifo_writePos+1)&FLUX_READ_FIFO_SIZE_MASK;
 
-		lastTransitionTime+=mfm_decodeCellLength*5;
-		TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+		//gcr_c64_5CellsNoTransitionHandler();
 
+		lastTransitionTime+=flux_decodeCellLength*5;
+		//TIM_SetCompare2(TIM2,lastTransitionTime + mfm_decodeCellLength*5 + mfm_decodeCellLength/2);
+		TIM2->CCR2 = lastTransitionTime + flux_decodeCellLength*5 + flux_decodeCellLength/2; //ist schneller
 
 	}
 
 	STM_EVAL_LEDOff(LED3);
 }
-
-
-
 
 
 #ifndef CUNIT
@@ -210,7 +227,6 @@ void flux_read_setEnableState(FunctionalState state)
 }
 
 
-
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 void printDebugDiffFifo()
 {
@@ -248,10 +264,10 @@ void printDebugDiffFifo()
 		else
 		{
 			printf("%d ",val);
-			while (val > mfm_decodeCellLength + mfm_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
+			while (val > flux_decodeCellLength + flux_decodeCellLength/2) //+mfm_cellLength/2 ist die Toleranz die genau auf die Mitte gesetzt wird.
 			{
 				printf("0");
-				val-=mfm_decodeCellLength;
+				val-=flux_decodeCellLength;
 			}
 			printf("1\n");
 		}

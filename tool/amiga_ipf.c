@@ -148,24 +148,35 @@ int readImage_ipf(const char *path)
 
 
 
-						int timeDataNeeded=0;
-						int possibleCelllength=0;
+						int timeDataNeeded=0; //zeigt an, ob das tool MFM-Zelllängen zum Controller überträgt, wenn AutoSpuren benutzt werden.
+						int possibleCelllength=0; //wie lang muss eine MFM-Zelle sein, damit alles auf die Spur passt
 
+						//nach aktueller Implementierung existiert der Automatik-Modus innerhalb des Controllers nicht mehr.
+						//Das Host Tool überträgt aktuell immer eine Zell-Längen-Liste. Diese kann aber je nach Spurtyp eine andere Quelle haben
+
+						//Bei Variable Density Spuren werden auf jeden Fall TimeData übertragen.
 						if (trackInf.type == ctitVar)
 							timeDataNeeded=1;
-						else
+
+						if (trackInf.type == ctitAuto)
 						{
+							//Wir rechnen aus, wie lang eine Zelle sein muss.
+
 							possibleCelllength=floor( ((double)CELL_TICKS_PER_ROTATION_300) / ((double)trackInf.tracksize[0] * 8.0));
 							printf("possibleCelllength: %d %d\n",
 									possibleCelllength,
 									MFM_BITTIME_DD/2);
 
+							//Bei Auto Density Spuren werden TimeData übertragen, wenn bei gewöhnlicher Zellenlänge nicht alle Daten gespeichert werden können.
 							if (possibleCelllength < MFM_BITTIME_DD/2)
 								timeDataNeeded=1;
 						}
 
 						if (trackInf.type == ctitAuto || trackInf.type == ctitNoise || trackInf.type == ctitVar)
 						{
+
+							//Kopiere die eigentlichen Nutzdaten.
+
 							assert(trackInf.trackcnt < 2);
 							if (trackInf.trackcnt==1)
 							{
@@ -232,6 +243,8 @@ int readImage_ipf(const char *path)
 
 						}
 
+
+						/*
 						if (cylinder==18)
 						{
 							for (int i=0; i< trackInf.tracksize[0]; i++)
@@ -245,6 +258,7 @@ int readImage_ipf(const char *path)
 							}
 							printf("\n");
 						}
+						*/
 
 						/*
 						if (trackInf.trackdata[0])

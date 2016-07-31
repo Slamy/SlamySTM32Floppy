@@ -8,6 +8,9 @@
 #include "floppy_control.h"
 #include "floppy_settings.h"
 #include "assert.h"
+#include "floppy_flux_read.h"
+#include "floppy_flux_write.h"
+#include "floppy_flux.h"
 
 //arm-none-eabi-cpp floppy_sector.c -I CMSIS/ -IUtilities/ -I STM32F4xx_StdPeriph_Driver/inc -I pt-1.4/
 
@@ -102,7 +105,7 @@ void floppy_readTrackMachine_init()
 		trackSectorDetected[i]=0;
 	}
 
-	mfm_errorHappened=0;
+	floppy_readErrorHappened=0;
 	trackReadState=0;
 	lastSectorDataFormat=0;
 	verifyMode=0;
