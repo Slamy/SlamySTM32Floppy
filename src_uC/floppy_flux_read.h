@@ -34,6 +34,16 @@ extern volatile unsigned int diffCollectorEnabled;
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 
+//keywords
+#define RECEIVE_DIFF_FIFO__5_NULLS 0x10000
+#define RECEIVE_DIFF_FIFO__RAW_VAL 0x20000
+#define RECEIVE_DIFF_FIFO__COMPARE 0x40000
+
+#define RECEIVE_DIFF_FIFO__BEFORE_SYNC 0x100000
+#define RECEIVE_DIFF_FIFO__AFTER_SYNC 0x200000
+#define RECEIVE_DIFF_FIFO__INDEX 0x400000
+#define RECEIVE_DIFF_FIFO__SYNC 0x800000
+
 #define DEBUG_DIFF_FIFO_SIZE 200
 extern volatile unsigned int fluxReadDebugFifoValue[DEBUG_DIFF_FIFO_SIZE];
 extern volatile unsigned int fluxReadDebugFifo_writePos;

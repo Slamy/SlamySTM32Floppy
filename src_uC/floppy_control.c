@@ -14,6 +14,7 @@
 #include "floppy_control.h"
 #include "floppy_mfm.h"
 #include "floppy_flux_write.h"
+#include "floppy_flux_read.h"
 #include "assert.h"
 
 enum DriveSelect readyDrives;
@@ -517,6 +518,10 @@ void EXTI3_IRQHandler(void)
 	if(EXTI_GetITStatus(EXTI_Line3) != RESET)
 	{
 		indexHappened=1;
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__INDEX);
+#endif
 		//printf("I\n");
 
 		/* Clear the EXTI line pending bit */

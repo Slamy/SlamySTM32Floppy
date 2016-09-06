@@ -86,7 +86,8 @@ void floppy_raw_findMFMSync()
 
 				byteAccu<<=1;
 
-				//Wir suchen nach einem Sync Mark. Das sind >10 gesetzte Bits von einem 0 Bit.
+				//Wir suchen nach einem Sync Mark. Das ist das Raw Wort 0x4489.
+				//Warum eigentlich nochmal <<1 ???
 				if ((wordAccu & 0x1ffff)==(SYNC_WORD_ISO<<1))
 				{
 					verifySectorDataShift=j;

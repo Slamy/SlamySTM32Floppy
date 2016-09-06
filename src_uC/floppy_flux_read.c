@@ -93,7 +93,7 @@ void TIM2_IRQHandler(void)
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 		//Speichere "5Cells ohne Transition" im DebugFifo
-		flux_read_diffDebugFifoWrite(0x10000);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__5_NULLS);
 #endif
 
 		fluxReadFifo[fluxReadFifo_writePos]=FLUX_DIFF_5_CELLS_WITHOUT_TRANS;
@@ -240,24 +240,32 @@ void printDebugDiffFifo()
 
 		printf("%03d ",i);
 
-		if (val==0x100000)
+		if (val==RECEIVE_DIFF_FIFO__BEFORE_SYNC)
 		{
 			printf("before sync\n");
 		}
-		else if (val==0x200000)
+		else if (val==RECEIVE_DIFF_FIFO__AFTER_SYNC)
 		{
 			printf("after sync\n");
 		}
-		else if (val==0x10000)
+		else if (val==RECEIVE_DIFF_FIFO__INDEX)
+		{
+			printf("index\n");
+		}
+		else if (val==RECEIVE_DIFF_FIFO__SYNC)
+		{
+			printf("sync\n");
+		}
+		else if (val==RECEIVE_DIFF_FIFO__5_NULLS)
 		{
 			printf("%d ",val);
 			printf("00000\n");
 		}
-		else if (val & 0x20000)
+		else if (val & RECEIVE_DIFF_FIFO__RAW_VAL)
 		{
-			printf("rawGcr %x\n",val&0xffff);
+			printf("raw %x\n",val&0xffff);
 		}
-		else if (val & 0x40000)
+		else if (val & RECEIVE_DIFF_FIFO__COMPARE)
 		{
 			printf("compare %04x\n",val&0xffff);
 		}

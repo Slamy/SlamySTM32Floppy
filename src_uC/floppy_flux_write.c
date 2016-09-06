@@ -436,7 +436,28 @@ void flux_write_init()
 void flux_write_setEnableState(FunctionalState state)
 {
 	lastCompare=0;
-	TIM4_IRQHandler();
+
+	if (state == ENABLE)
+	{
+		writeFifo_writePos=0;
+		writeFifo_readPos=0;
+		writeFifo_fillState=0;
+
+		flux_write_currentWord_bit=0;
+
+		flux_write_currentWord=0;
+		flux_write_currentWord_mask=0x80;
+		flux_write_currentWord_encodeMode=0;
+		flux_write_currentWord_len=0;
+		flux_write_currentWord_cellLength=0;
+		flux_write_currentWord_active=0;
+		flux_write_lastBit=0;
+
+		pulseLenDefinesBreak=0;
+
+		TIM4_IRQHandler();
+	}
+
 	TIM4->CNT=0;
 	TIM_ITConfig(TIM4,TIM_IT_CC3,state);
 	//printf("Enable %d\n",TIM4->CNT);

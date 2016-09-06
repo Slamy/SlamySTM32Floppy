@@ -137,7 +137,7 @@ void gcr_c64_decode()
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 			//Speichere nun empfangene 8 Raw GCR Bits im DebugFifo
-			flux_read_diffDebugFifoWrite(0x20000|rawGcrSaved);
+			flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__RAW_VAL|rawGcrSaved);
 #endif
 		}
 	}
@@ -151,7 +151,7 @@ void gcr_c64_decode()
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
 			//Speichere nun empfangene 5 Raw GCR Bits + die decodierte Version im DebugFifo
-			flux_read_diffDebugFifoWrite(0x20000| ((rawGcr & 0x1f)<<8) |decodedGcr);
+			flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__RAW_VAL| ((rawGcr & 0x1f)<<8) |decodedGcr);
 #endif
 			rawGcr=0;
 			gcr_decodedNibbleValid=1;

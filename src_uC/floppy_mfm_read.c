@@ -47,11 +47,16 @@ void mfm_iso_decode()
 		mfm_decodedByteValid=1;
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x20000 | mfm_savedRawWord);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__RAW_VAL | mfm_savedRawWord);
 #endif
+		if ((rawMFM & 0xffff)==SYNC_WORD_ISO)
+		{
+			mfm_inSync++;
+			if (mfm_inSync>5)
+				mfm_inSync=5;
+		}
 	}
-
-	if ((rawMFM & 0xffff)==SYNC_WORD_ISO) //IAM sync word is broken A1.
+	else if ((rawMFM & 0xffff)==SYNC_WORD_ISO) //IAM sync word is broken A1.
 	{
 		//STM_EVAL_LEDOn(LED3);
 		shiftedBits=0;
@@ -62,6 +67,10 @@ void mfm_iso_decode()
 		if (mfm_inSync>5)
 			mfm_inSync=5;
 		//STM_EVAL_LEDOff(LED3);
+
+#ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__SYNC);
+#endif
 
 #ifdef ACTIVATE_DIFFCOLLECTOR
 		diffCollectorEnabled=1;
@@ -75,6 +84,7 @@ void mfm_iso_transitionHandler()
 	{
 		//Die letzte Transition ist zu weit weg. Desynchronisiert...
 		mfm_inSync=0;
+		rawMFM=1;
 		//printf("UNSYNC\n");
 	}
 	else
@@ -196,7 +206,7 @@ void mfm_blockedWaitForSyncWord(int expectNum)
 
 	if (mfm_inSync!=expectNum)
 	{
-		printf("mfm_inSync %d != expectNum %d\n",mfm_inSync,expectNum);
+		printf("mfm_inSync %d != expectNum %d\n",(int)mfm_inSync,(int)expectNum);
 		floppy_readErrorHappened=1;
 	}
 

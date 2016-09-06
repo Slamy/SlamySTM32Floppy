@@ -64,38 +64,38 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		if (blocklen==0)
 		{
-			printf("Konnte nicht alle notwendigen Daten finden!\n");
-			return 1;
+			printf("Konnte nicht alle notwendigen Daten finden. Ignoriere Cyl %d Head %d!\n",cylinder,head);
+			return 0;
 		}
 
 		int blocktype=cylBufPtr[2];
 
-		printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
+		//printf("Found block %d %d\n",blocklen,cylBufPtr[2]);
 
 		if ((blocktype & RAWBLOCK_TYPE_HEAD) == head)
 		{
 			if (blocktype & RAWBLOCK_TYPE_HAS_VARIABLE_DENSITY)
 			{
 				timeDataUsed=1;
-				printf("timeDataUsed=1\n");
+				//printf("timeDataUsed=1\n");
 			}
 
 			if (blocktype & RAWBLOCK_TYPE_TIME_DATA)
 			{
 				timeData=cylBufPtr+3;
 				timeDataSize=blocklen;
-				printf("timeData size:%d\n",timeDataSize);
+				//printf("timeData size:%d\n",timeDataSize);
 			}
 			else
 			{
 
 				trackData=cylBufPtr+3;
 				trackDataSize=blocklen;
-				printf("Trackdata starts with %x\n",*trackData);
+				//printf("Trackdata starts with %x\n",*trackData);
 			}
 		}
 
-		printf("BlockRead State %d %p %p\n",timeDataUsed, trackData, timeData);
+		//printf("BlockRead State %d %p %p\n",timeDataUsed, trackData, timeData);
 
 		cylBufPtr+=3+blocklen;
 
@@ -104,13 +104,13 @@ int floppy_raw_writeTrack(int cylinder, int head)
 
 		if (timeDataUsed && trackData && timeData)
 		{
-			printf("I've found track data and time data. Let's-e go!\n");
+			//printf("I've found track data and time data. Let's-e go!\n");
 			break;
 		}
 
 		if (!timeDataUsed && trackData && !timeData)
 		{
-			printf("I've found track data. That's all i need!\n");
+			//printf("I've found track data. That's all i need!\n");
 			break;
 		}
 	}
@@ -422,9 +422,18 @@ int floppy_raw_writeTrack(int cylinder, int head)
 			}
 			else
 			{
-				printf("track overflown with %d %d\n",(int)overflownBytes,(int)flux_decodeCellLength);
-				//mfm_decodeCellLength--;
-				raw_cellLengthDecrement++;
+
+				if (overflownBytes < 10)
+				{
+					printf("track overflown with %d %d. but ill accept\n",(int)overflownBytes,(int)flux_decodeCellLength);
+					overflownBytes=0;
+
+				}
+				else
+				{
+					printf("track overflown with %d %d\n",(int)overflownBytes,(int)flux_decodeCellLength);
+				}
+
 			}
 		}
 
@@ -498,13 +507,13 @@ int floppy_raw_gcr_readTrackMachine()
 	case 3:
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x100000);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__BEFORE_SYNC);
 #endif
 
 		gcr_blockedWaitForSyncState();
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x200000);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__AFTER_SYNC);
 #endif
 
 		trackReadState++;
@@ -519,7 +528,7 @@ int floppy_raw_gcr_readTrackMachine()
 		//gcr_blockedRead();
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | toCompare);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__COMPARE | (readBack<<8) | toCompare);
 #endif
 
 		if (readBack!=toCompare)
@@ -616,7 +625,7 @@ int floppy_raw_mfm_readTrackMachine()
 	case 3:
 		mfm_inSync = 0;
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x100000);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__BEFORE_SYNC);
 #endif
 
 		//Sowohl Amiga, als auch ISO verwenden >=2 Sync words
@@ -625,7 +634,7 @@ int floppy_raw_mfm_readTrackMachine()
 
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x200000);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__AFTER_SYNC);
 #endif
 
 		trackReadState++;
@@ -641,7 +650,8 @@ int floppy_raw_mfm_readTrackMachine()
 		//gcr_blockedRead();
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | toCompare);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__COMPARE | readBack);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__COMPARE | toCompare);
 #endif
 
 		if (readBack!=toCompare)

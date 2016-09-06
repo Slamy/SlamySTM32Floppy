@@ -271,7 +271,7 @@ int floppy_c64_readTrackMachine(int expectedCyl)
 		{
 
 #ifdef ACTIVATE_DEBUG_RECEIVE_DIFF_FIFO
-		flux_read_diffDebugFifoWrite(0x40000 | (readBack<<8) | sectorData[i]);
+		flux_read_diffDebugFifoWrite(RECEIVE_DIFF_FIFO__COMPARE | (readBack<<8) | sectorData[i]);
 #endif
 
 			if (sectorData[i]!=readBack)

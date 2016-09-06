@@ -131,6 +131,7 @@ int main()
 
 	floppy_raw_findMFMSync();
 	floppy_raw_getNextVerifyablePart();
+	assert(verifySectorData);
 	printf("%02x\n",floppy_raw_getNextCylinderBufferByte());
 	printf("%02x\n",floppy_raw_getNextCylinderBufferByte());
 
