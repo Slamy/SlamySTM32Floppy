@@ -802,6 +802,8 @@ int main (int argc, char **argv)
 		printf("                       ST - Atari ST Standard ISO\n");
 		printf("                       DSK - Amstrad CPC Extended\n");
 		printf("                       IPF - Interchangable Preservation Format\n");
+		printf("        [flippy]       D64 - C64 Disk Image\n");
+		printf("        [flippy]       G64 - C64 Raw Disk Image\n");
 		printf("  write isodd <path>   Erwingt ISO DD\n");
 		printf("  write isohd <path>   Erwingt ISO HD\n");
 		printf("  discover             Versucht das Diskettenformat zu erkennen\n");
