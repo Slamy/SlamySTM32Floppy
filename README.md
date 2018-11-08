@@ -25,7 +25,7 @@ This program is capable of writing certain floppy image formats.
 * .g64 (a few copy protections are written as is. but some are not working)
 
 I've uploaded this piece of software so that others can learn from it.
-It shows communication 
+It shows communication using libusb with a microcontroller and is able to parse various formats.
 
 Here is my blog entry on this topic:
 http://slamyslab.blogspot.com/2016/04/slamy-stm32-floppy-controller-part-1.html
